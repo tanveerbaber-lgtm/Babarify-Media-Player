@@ -124,6 +124,7 @@ QLabel#kbd {{
 
 /* Pages */
 QWidget#page {{ background: {BG}; }}
+QWidget#seeThrough {{ background: transparent; }}
 QWidget#playerPage {{ background: {BG}; }}
 QFrame#dropZone {{
     background: {SURFACE}; border: 1px dashed {BORDER}; border-radius: {RADIUS_L}px;

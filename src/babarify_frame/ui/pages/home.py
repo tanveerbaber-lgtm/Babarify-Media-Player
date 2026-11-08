@@ -212,7 +212,9 @@ class HomePage(QWidget):
         self.continue_title = _label("Continue watching", "subtitle")
         box.addWidget(self.continue_title)
         self.continue_row = QWidget()
-        self.continue_row.setObjectName("page")  # page background, not the default viewport colour
+        # See-through, so the page shows behind the cards. Named "page", it would draw its own copy of
+        # a background picture, squeezed into the row.
+        self.continue_row.setObjectName("seeThrough")
         self._continue_box = QHBoxLayout(self.continue_row)
         self._continue_box.setContentsMargins(0, 0, 0, 0)
         self._continue_box.setSpacing(theme.M)
@@ -222,6 +224,8 @@ class HomePage(QWidget):
         row_scroll.setFrameShape(QFrame.Shape.NoFrame)
         row_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         row_scroll.setFixedHeight(CARD_THUMB.height() + 72)
+        row_scroll.setObjectName("seeThrough")
+        row_scroll.viewport().setObjectName("seeThrough")
         row_scroll.setWidget(self.continue_row)
         self._continue_scroll = row_scroll
         box.addWidget(row_scroll)

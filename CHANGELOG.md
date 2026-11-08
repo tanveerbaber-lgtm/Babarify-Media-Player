@@ -111,6 +111,7 @@ A feasibility prototype only, with no version planned yet
 
 - Changed: a new app icon, headphones around a play button over the name "Babarify" on a glossy blue
   tile, for the program, the installer, the taskbar and the left bar. The tagline is now "Play • Enjoy • Anytime".
+- Fixed: with a background picture, the Continue watching row on Home showed a second, squeezed copy of it.
 - New: the volume number is shown next to the volume slider. Normal volume runs from 1 to 100; the mute
   button is how to silence it.
 - Changed: volume boost now goes up to 200 % (was 150 %). It's still off until you allow it in Settings.

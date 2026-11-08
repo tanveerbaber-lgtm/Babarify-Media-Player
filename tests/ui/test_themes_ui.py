@@ -218,6 +218,15 @@ def test_a_background_picture_goes_behind_the_pages_until_removed(window: MainWi
     assert theme.BACKGROUND_FILE == "" and "border-image" not in theme.STYLESHEET
 
 
+def test_the_continue_watching_row_shows_the_page_behind_it(window: MainWindow) -> None:
+    """The picture goes on every widget named "page". The row would draw a second, squeezed copy."""
+    row = window.home.continue_row
+    scroll = window.home._continue_scroll
+    for widget in (row, scroll, scroll.viewport()):
+        assert widget.objectName() == "seeThrough"
+    assert "QWidget#seeThrough { background: transparent; }" in theme.STYLESHEET
+
+
 def test_the_speed_button_is_the_same_square_as_the_others(window: MainWindow) -> None:
     controls = window.player.controls
     assert controls.speed_button.size() == controls.stop_button.size()
