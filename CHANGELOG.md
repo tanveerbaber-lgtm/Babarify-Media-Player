@@ -55,6 +55,8 @@ Brings the Android app close to the Windows app. Release notes: [Android 0.2.0-b
 - New: repeat off, one or all; shuffle; add media to a playlist from the library, your files or the player.
 - New: a Music tab listing every song on the phone by song, album, artist and folder, with search and sorting.
   It asks for a new, optional permission to read songs; you can still open files and add folders without it.
+- New: songs have one row of controls: back 10 s, shuffle, previous, play, next, repeat and forward 10 s.
+  Speed and volume are in the ⋮ menu.
 - New: a now-playing screen with the song's picture filling the top, colours taken from it, or an animation
   if it has none: mirrored bars with a reflection, capsules, waves, a circle or lights. They change by
   themselves while a song plays, or you can choose one. Its controls stay until you hide them. The animations

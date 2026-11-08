@@ -127,6 +127,7 @@ class PlayerActivity : Activity(), SessionListener {
     private lateinit var forwardSeek: Button
     private var audioLayout = false
     private var placeInVideo: List<Placed> = emptyList()
+    private var videoSizes: Map<View, ViewGroup.LayoutParams> = emptyMap()
     private var locked = false
 
     private val handler = Handler(Looper.getMainLooper())
@@ -539,14 +540,20 @@ class PlayerActivity : Activity(), SessionListener {
         audioLayout = audio
         val density = resources.displayMetrics.density
         fun small() = LinearLayout.LayoutParams((ICON_DP * density).toInt(), (ICON_DP * density).toInt())
+        // A song has one row, spread evenly: back 10 s, shuffle, previous, play, next, repeat, forward 10 s.
+        // Speed and volume are in the menu (and on the volume keys); there is nothing to rotate.
+        fun spread() = LinearLayout.LayoutParams(0, (ICON_DP * density).toInt(), 1f)
         if (audio) {
             place(transportRow, bottomBar, bottomBar.indexOfChild(toolRow), LinearLayout.LayoutParams(MATCH, WRAP))
-            place(repeatButton, transportRow, transportRow.childCount, small().apply { marginStart = (6 * density).toInt() })
-            place(backSeek, toolRow, 0, small())
-            place(forwardSeek, toolRow, toolRow.indexOfChild(findViewById(R.id.rotateButton)), small())
+            place(backSeek, transportRow, 0, spread())
+            videoSizes.keys.forEach { it.layoutParams = spread() }
+            place(repeatButton, transportRow, transportRow.childCount, spread())
+            place(forwardSeek, transportRow, transportRow.childCount, spread())
         } else {
             placeInVideo.forEach { place(it.view, it.parent, it.index, it.params) }
+            videoSizes.forEach { (view, params) -> view.layoutParams = params }
         }
+        toolRow.visibility = if (audio) View.GONE else View.VISIBLE
         val onlyVideo = if (audio) View.GONE else View.VISIBLE
         listOf(R.id.fitButton, R.id.audioButton, R.id.subtitleButton).forEach { findViewById<View>(it).visibility = onlyVideo }
         shuffleButton.visibility = if (audio) View.VISIBLE else View.GONE
@@ -746,6 +753,8 @@ class PlayerActivity : Activity(), SessionListener {
         val audio = session.isAudioOnly
         val items = buildList<Pair<Int, () -> Unit>> {
             if (audio) {
+                add(R.string.speed to { showSpeed() })
+                add(R.string.volume to { showVolumeDialog() })
                 add(R.string.equalizer to { showEqualizer() })
                 add(R.string.animation_style to { showVisualStyles() })
                 add(R.string.audio to { showTracks(TrackKind.AUDIO) })
@@ -1499,6 +1508,8 @@ class PlayerActivity : Activity(), SessionListener {
         favouriteButton = findViewById(R.id.favouriteButton)
         backSeek = findViewById(R.id.backButton)
         forwardSeek = findViewById(R.id.forwardButton)
+        videoSizes = listOf(shuffleButton, findViewById(R.id.previousButton), findViewById<View>(R.id.nextButton))
+            .associateWith { it.layoutParams }
         placeInVideo = listOf(backSeek, forwardSeek, repeatButton, transportRow).map { view ->
             val parent = view.parent as ViewGroup
             Placed(view, parent, parent.indexOfChild(view), view.layoutParams)
