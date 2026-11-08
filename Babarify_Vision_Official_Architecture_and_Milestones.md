@@ -4,7 +4,7 @@
 **Document status:** Proposed official project baseline  
 **Product:** Babarify Frame  
 **Parent brand:** Babarify  
-**Tagline:** Every Frame, Better.  
+**Tagline:** Play • Enjoy • Anytime  
 **Business model:** Free for everyone  
 **Initial platform:** Windows 10 and Windows 11, 64-bit  
 **Future platforms:** Android and iOS, with the cross-platform strategy decided after technical validation  
@@ -40,9 +40,9 @@ The product will be free to use. The baseline includes no advertising, no mandat
 
 - **Official product name:** Babarify Frame
 - **Brand:** Babarify
-- **Tagline:** Every Frame, Better.
+- **Tagline:** Play • Enjoy • Anytime
 - **Visual direction:** Premium dark interface, restrained blue/cyan highlights, and green accents consistent with the Babarify brand.
-- **App icon:** A glowing blue "B" (for Babarify) with a green-cyan play symbol in its upper bowl, an orbiting green ring, and a small sparkle, on a dark rounded tile with a blue-to-green border. The source artwork is `branding/source/babarify-frame-source.webp`; `branding/generate_icon.py` crops it to the tile and builds the PNG sizes (16–1024 px) and the multi-size Windows `.ico` in `branding/icon/`. The source is raster at 1254 px, so a vector master should be commissioned before large-format or store use.
+- **App icon:** Headphones around a round play button with a green ring, over the white word "Babarify" and a green swoosh, with equalizer bars at the sides, on a glossy blue rounded tile. The source is the blue top-left tile of `branding/source/Babarify Media Player Icon Grid.png` (about 406 px); `branding/generate_icon.py` cuts it out and builds the PNG sizes (16–1024 px), the multi-size Windows `.ico` in `branding/icon/`, and the Android launcher icons (adaptive and plain) and intro picture. The source is raster, so a vector master should be commissioned before large-format or store use.
 - **Audience:** People who want a reliable, attractive, capable desktop player for personal video and audio collections.
 
 The name and tagline are proposed product decisions, not trademark clearance. Check relevant trademark databases, domains, software listings, and naming conflicts before public release.

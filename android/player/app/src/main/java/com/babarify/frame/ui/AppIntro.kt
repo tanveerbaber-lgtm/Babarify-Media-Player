@@ -118,7 +118,7 @@ object AppIntro {
         }
         iconFrame.addView(
             ImageView(activity).apply {
-                setImageResource(R.mipmap.ic_launcher)
+                setImageResource(R.drawable.brand_icon)
                 scaleType = ImageView.ScaleType.CENTER_CROP
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             },

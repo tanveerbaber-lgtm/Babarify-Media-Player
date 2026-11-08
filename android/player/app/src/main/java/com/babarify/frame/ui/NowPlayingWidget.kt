@@ -80,7 +80,7 @@ class NowPlayingWidget : AppWidgetProvider() {
                 if (picture != null) {
                     setImageViewBitmap(R.id.widgetArt, picture)
                 } else {
-                    setImageViewResource(R.id.widgetArt, R.mipmap.ic_launcher)
+                    setImageViewResource(R.id.widgetArt, R.drawable.brand_icon)
                 }
                 setImageViewResource(R.id.widgetToggle, if (playing) R.drawable.ic_pause else R.drawable.ic_play)
                 setContentDescription(R.id.widgetToggle, context.getString(if (playing) R.string.pause else R.string.play))

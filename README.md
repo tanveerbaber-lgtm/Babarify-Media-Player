@@ -1,6 +1,6 @@
 # Babarify Media Player
 
-**Every Frame, Better.** A free, privacy-focused media player by Babarify.
+**Play • Enjoy • Anytime.** A free, privacy-focused media player by Babarify.
 
 > Status: **Milestone 4 — Playback Reliability and Performance** (awaiting acceptance). The app
 > plays local video and audio in a branded interface, reports honestly whether the GPU or the
