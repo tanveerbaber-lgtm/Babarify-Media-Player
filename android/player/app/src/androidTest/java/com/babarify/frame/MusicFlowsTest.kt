@@ -397,6 +397,22 @@ class MusicFlowsTest {
         }
     }
 
+    // Songs have one row of controls, in order, and the speed, volume and rotate row is out of the way.
+    @Test
+    fun aSongHasOneRowOfControlsInOrder() = playBoth(shuffle = false) { player ->
+        val row = player.findViewById<android.view.ViewGroup>(R.id.transportRow)
+        val order = (0 until row.childCount).map { row.getChildAt(it).id }
+        assertEquals(
+            listOf(
+                R.id.backButton, R.id.shuffleButton, R.id.previousButton, R.id.playButton,
+                R.id.nextButton, R.id.repeatButton, R.id.forwardButton,
+            ),
+            order,
+        )
+        assertEquals(android.view.View.GONE, player.findViewById<android.view.View>(R.id.toolRow).visibility)
+        assertTrue("every button fits", (0 until row.childCount).all { row.getChildAt(it).width > 0 })
+    }
+
     @Test
     fun aPictureAndTagsFillTheNowPlayingScreen() = playBoth(shuffle = false) { player ->
         assertEquals("Test song", player.findViewById<android.widget.TextView>(R.id.audioTitle).text.toString())
