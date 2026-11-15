@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor, QFontDatabase, QIcon, QLinearGradient, QPainter, QPixmap
+from PySide6.QtCore import QRectF, Qt, Signal
+from PySide6.QtGui import QColor, QFontDatabase, QIcon, QLinearGradient, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -27,7 +27,7 @@ from babarify_frame.ai.models import MODELS, ModelStatus
 from babarify_frame.configuration.preferences import LANGUAGES, SEEK_STEPS_S, Preferences
 from babarify_frame.core.models import SubtitlePosition, SubtitleStyle
 from babarify_frame.core.music import AUDIO_EFFECT_LABELS, FADE_CHOICES_S, STYLE_LABELS
-from babarify_frame.core.themes import THEMES
+from babarify_frame.core.themes import THEMES, Palette
 from babarify_frame.ui import theme
 from babarify_frame.ui.widgets import plain_text
 
@@ -63,18 +63,29 @@ def _select(combo: QComboBox, value: object, custom_label: str) -> None:
     combo.setCurrentIndex(index)
 
 
-def theme_swatch(start: str, end: str) -> QIcon:
-    """A theme's colours, beside its name in the list."""
+def theme_swatch(palette: Palette) -> QIcon:
+    """A theme's colours, beside its name in the list.
+
+    Dark themes show their two accent colours. A light theme shows its own light page colours instead
+    (its accents are dark blues), with a thin outline so it stays visible on a light menu.
+    """
     pixmap = QPixmap(16, 16)
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     gradient = QLinearGradient(0, 0, 16, 16)
-    gradient.setColorAt(0, QColor(start))
-    gradient.setColorAt(1, QColor(end))
-    painter.setPen(Qt.PenStyle.NoPen)
+    if palette.light:
+        gradient.setColorAt(0, QColor(palette.surface))
+        gradient.setColorAt(1, QColor(palette.pressed))
+        painter.setPen(QPen(QColor(palette.control_border), 1))
+        rect = QRectF(0.5, 0.5, 15, 15)
+    else:
+        gradient.setColorAt(0, QColor(palette.accent))
+        gradient.setColorAt(1, QColor(palette.accent2))
+        painter.setPen(Qt.PenStyle.NoPen)
+        rect = QRectF(0, 0, 16, 16)
     painter.setBrush(gradient)
-    painter.drawRoundedRect(0, 0, 16, 16, 4, 4)
+    painter.drawRoundedRect(rect, 4, 4)
     painter.end()
     return QIcon(pixmap)
 
@@ -151,7 +162,7 @@ class SettingsPage(QWidget):
         self.colour_theme = QComboBox()
         self.colour_theme.setAccessibleName("Colour theme")
         for key, palette in THEMES.items():
-            self.colour_theme.addItem(theme_swatch(palette.accent, palette.accent2), palette.label, key)
+            self.colour_theme.addItem(theme_swatch(palette), palette.label, key)
         self.show_status_bar = QCheckBox("Show the status bar at the bottom of the window")
         self.show_status_bar.setToolTip(
             "Technical details and short messages. Playback info (Ctrl+I) has the same details."

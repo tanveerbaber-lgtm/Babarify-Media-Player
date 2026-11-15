@@ -19,6 +19,7 @@ from babarify_frame.ui import controls, theme
 from babarify_frame.ui.app import load_icon
 from babarify_frame.ui.audio_view import colour_from
 from babarify_frame.ui.main_window import MainWindow
+from babarify_frame.ui.pages.settings import theme_swatch
 
 pytestmark = pytest.mark.ui
 
@@ -216,6 +217,21 @@ def test_a_background_picture_goes_behind_the_pages_until_removed(window: MainWi
     assert window.player.objectName() == "playerPage", "the player keeps its plain background"
     window.settings.set_background("")
     assert theme.BACKGROUND_FILE == "" and "border-image" not in theme.STYLESHEET
+
+
+def test_the_light_theme_swatch_looks_light_and_dark_themes_show_their_accents(window: MainWindow) -> None:
+    def middle(key: str) -> QColor:
+        return theme_swatch(THEMES[key]).pixmap(16, 16).toImage().pixelColor(8, 8)
+
+    light = middle("light")
+    assert light.lightness() > 200, "Light shows its pale page colours, not its dark blue accents"
+    edge = theme_swatch(THEMES["light"]).pixmap(16, 16).toImage().pixelColor(0, 8)
+    assert edge.alpha() > 0 and edge.lightness() < light.lightness(), (
+        "an outline keeps it visible on a light menu"
+    )
+    for key, palette in THEMES.items():
+        if not palette.light:
+            assert middle(key).lightness() < 200, f"{key} shows its accent colours"
 
 
 def test_the_continue_watching_row_shows_the_page_behind_it(window: MainWindow) -> None:

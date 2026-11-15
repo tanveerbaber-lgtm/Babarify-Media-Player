@@ -1068,7 +1068,7 @@ class MainWindow(QMainWindow):
         """Every theme, one click away. Choosing one goes through Settings, so both always agree."""
         menu = QMenu(self)
         for key, palette in THEMES.items():
-            action = menu.addAction(theme_swatch(palette.accent, palette.accent2), palette.label)
+            action = menu.addAction(theme_swatch(palette), palette.label)
             action.setCheckable(True)
             action.setChecked(key == self._prefs.colour_theme)
             action.triggered.connect(lambda _=False, chosen=key: self.choose_colour_theme(chosen))
