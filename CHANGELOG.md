@@ -76,7 +76,7 @@ Brings the Android app close to the Windows app. Release notes: [Android 0.2.0-b
 - New: your own picture as the background of the main screens.
 - New: fade between songs in a playlist or queue, and a sound effect: room, wider stereo or both (Settings → Playback).
 - Changed: text uses Arimo, which matches Arial, and the name on Home has the brand colours.
-- Changed: a new app icon, headphones around a play button over the name "Babarify" on a glossy blue
+- Changed: a new app icon, a blue "B" with a play button, green sound bars and a green swoosh on a glossy blue
   tile, on the home screen, in the opening animation and on the widget. The tagline is now "Play • Enjoy • Anytime".
 - New: back up settings, playlists and favourites to a file, and restore them.
 - New: import and export playlists as M3U. Songs are matched by file name.
@@ -109,7 +109,7 @@ A feasibility prototype only, with no version planned yet
 
 ## Windows (next version, not released)
 
-- Changed: a new app icon, headphones around a play button over the name "Babarify" on a glossy blue
+- Changed: a new app icon, a blue "B" with a play button, green sound bars and a green swoosh on a glossy blue
   tile, for the program, the installer, the taskbar and the left bar. The tagline is now "Play • Enjoy • Anytime".
 - Fixed: with a background picture, the Continue watching row on Home showed a second, squeezed copy of it.
 - New: the volume number is shown next to the volume slider. Normal volume runs from 1 to 100; the mute
