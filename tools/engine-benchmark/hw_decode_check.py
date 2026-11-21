@@ -93,7 +93,7 @@ def one_run(engine: str, hardware: bool, media: str, seconds: float) -> dict[str
 
 def main() -> int:
     p = argparse.ArgumentParser()
-    p.add_argument("--engines", nargs="+", default=["libvlc", "mpv"])
+    p.add_argument("--engines", nargs="+", default=["libvlc"])
     p.add_argument("--seconds", type=float, default=5.0)
     p.add_argument("--child", nargs=3, metavar=("ENGINE", "HW", "MEDIA"))
     a = p.parse_args()

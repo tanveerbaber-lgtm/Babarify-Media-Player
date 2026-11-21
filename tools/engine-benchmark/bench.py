@@ -31,7 +31,7 @@ import psutil
 
 HERE = Path(__file__).resolve().parent
 RESULTS = HERE / "results"
-ENGINES = ["libvlc", "mpv"]
+ENGINES = ["libvlc"]  # mpv was compared in M1 and removed in 0.11
 PERF_MEDIA = ["h264_1080p30_aac.mp4", "hevc_2160p30_aac.mkv", "vp9_1080p30_opus.webm", "av1_1080p30_opus.mkv"]
 TRIAL_TIMEOUT = 180
 
@@ -74,7 +74,7 @@ def machine_info() -> dict[str, Any]:
             ["powercfg", "/getactivescheme"], capture_output=True, text=True
         ).stdout.strip(),
         "python": platform.python_version(),
-        "packages": {p: version(p) for p in ("PySide6", "python-vlc", "mpv", "psutil")},
+        "packages": {p: version(p) for p in ("PySide6", "python-vlc", "psutil")},
         "engines": engines,
         "media_ffmpeg": manifest["ffmpeg_version"],
     }
