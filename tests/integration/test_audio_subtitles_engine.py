@@ -6,7 +6,6 @@ subtitles are actually drawn live in tools/subtitle_render_check.py.
 
 from __future__ import annotations
 
-import os
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
@@ -33,17 +32,9 @@ TIMEOUT_MS = 15_000
 
 
 def _engine_params() -> list[Any]:
-    # Probing mpv starts and ends a live mpv handle, which can crash this process (S1, R33),
-    # so mpv is probed only when its tests are switched on.
     factory = default_factory()
     params = []
-    for name in ("libvlc", "mpv"):
-        if name == "mpv" and os.environ.get("BABARIFY_TEST_MPV") != "1":
-            skip = pytest.mark.skip(
-                reason="mpv is the alternate engine; set BABARIFY_TEST_MPV=1 (see M1 finding S1)"
-            )
-            params.append(pytest.param(name, marks=[skip], id=name))
-            continue
+    for name in ("libvlc",):
         probe = factory.probe(name)
         marks = [pytest.mark.skipif(not probe.available, reason=f"{name} unavailable: {probe.detail}")]
         params.append(pytest.param(name, marks=marks, id=name))

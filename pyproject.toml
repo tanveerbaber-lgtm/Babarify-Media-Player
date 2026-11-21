@@ -17,15 +17,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Engine bindings. Native engine libraries are NOT installed by pip; see README.
+# Engine binding. The native libVLC library is NOT installed by pip; see README.
 vlc = ["python-vlc>=3.0.20123"]
-mpv = ["mpv>=1.0.7"]
-# Optional local AI (M9): speech-to-text subtitles. Models are downloaded in the app, on request.
-ai = ["faster-whisper==1.2.1"]
 dev = [
     "python-vlc>=3.0.20123",
-    "faster-whisper==1.2.1",
-    "mpv>=1.0.7",
     "psutil>=6.0",
     "pytest>=8.3",
     "pytest-qt>=4.4",
@@ -67,12 +62,12 @@ mypy_path = "src"
 packages = ["babarify_frame"]
 
 [[tool.mypy.overrides]]
-module = ["vlc", "mpv", "psutil", "faster_whisper"]
+module = ["vlc", "psutil"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-# Engine prototypes wrap untyped ctypes bindings.
-module = ["babarify_frame.playback.adapters.libvlc", "babarify_frame.playback.adapters.mpv"]
+# The engine adapter wraps untyped ctypes bindings.
+module = ["babarify_frame.playback.adapters.libvlc"]
 disallow_any_expr = false
 warn_return_any = false
 disallow_untyped_calls = false

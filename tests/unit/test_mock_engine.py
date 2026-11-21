@@ -190,8 +190,10 @@ def test_existing_file_and_file_uri_are_accepted(engine: MockEngine, tmp_path: P
         ("", ErrorCode.INVALID_ARGUMENT),
         ("   ", ErrorCode.INVALID_ARGUMENT),
         ("mock://a\nb", ErrorCode.INVALID_ARGUMENT),
-        ("ftp://example.com/a.mp4", ErrorCode.UNSUPPORTED),  # http/https/rtsp are allowed since M8
-        ("http://user:secret@example.com/a.mp4", ErrorCode.INVALID_ARGUMENT),
+        ("ftp://example.com/a.mp4", ErrorCode.UNSUPPORTED),
+        ("http://example.com/a.mp4", ErrorCode.UNSUPPORTED),  # local files only since 0.11
+        ("https://example.com/live.m3u8", ErrorCode.UNSUPPORTED),
+        ("rtsp://camera.local/stream", ErrorCode.UNSUPPORTED),
         ("smb://server/share/a.mkv", ErrorCode.UNSUPPORTED),
     ],
 )

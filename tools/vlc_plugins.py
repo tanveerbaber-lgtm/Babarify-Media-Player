@@ -6,10 +6,10 @@ plugin code (the DLL is mapped with DONT_RESOLVE_DLL_REFERENCES: no imports, no 
 decides which plugins the release ships:
 
 * EXCLUDED_DIRS / EXCLUDED: capture devices, disc access (DVD/Blu-ray CSS/AACS concerns, M1),
-  conditional access, network protocols Babarify does not offer, control interfaces, Lua,
-  service discovery, renderers (Chromecast), visualisations and encoders it does not use.
-* Everything else (demuxers, decoders, audio/video output, filters, packetizers, the http and
-  rtsp access the proxy and RTSP need, and the stream output used by the AI worker) is kept.
+  conditional access, every network protocol (since 0.11 the player opens local files only), control
+  interfaces, Lua, service discovery, renderers (Chromecast), visualisations, stream output, muxers and
+  encoders.
+* Everything else (local file access, demuxers, decoders, audio/video output, filters, packetizers) is kept.
 
 Usage:
   python tools/vlc_plugins.py audit  [vlc_dir] [out.json]   list every plugin and its licence
@@ -40,6 +40,8 @@ EXCLUDED_DIRS = {
     "logger": "file/syslog loggers: the app keeps its own log",
     "meta_engine": "online cover-art and lyrics fetchers",
     "stream_extractor": "archive extraction",
+    "stream_out": "re-encoding and streaming out (was used by the AI worker until 0.11)",
+    "mux": "writing media files (was used by the AI worker until 0.11)",
     "spu": "",  # placeholder; real entries below decide per plugin
 }
 EXCLUDED_DIRS.pop("spu")
@@ -64,7 +66,8 @@ EXCLUDED = {
     "libcdda_plugin.dll": "audio CD access",
     "libvcd_plugin.dll": "VCD access",
     "libaribcam_plugin.dll": "ARIB conditional access",
-    # Network protocols Babarify does not offer (http/https/rtsp only, M8).
+    # Network protocols: the player opens local files only (0.11).
+    "libhttp_plugin.dll": "http", "libhttps_plugin.dll": "https", "liblive555_plugin.dll": "rtsp",
     "libftp_plugin.dll": "ftp", "libsftp_plugin.dll": "sftp", "libsmb_plugin.dll": "smb",
     "libnfs_plugin.dll": "nfs", "libaccess_mms_plugin.dll": "mms", "libvnc_plugin.dll": "vnc",
     "libaccess_srt_plugin.dll": "srt", "librist_plugin.dll": "rist", "libsatip_plugin.dll": "SAT>IP",
@@ -91,17 +94,13 @@ EXCLUDED = {
     "liblogger_plugin.dll": "file logger (the app keeps its own log)",
     "libhds_plugin.dll": "Adobe HDS: would fetch segments around the stream proxy (M8)",
     "libstream_out_smem_plugin.dll": "not used",
-    # Video encoders (the AI worker only writes 16-bit PCM WAV).
+    # Video encoders: nothing is encoded.
     "libx264_plugin.dll": "H.264 encoder", "libx26410b_plugin.dll": "H.264 encoder",
     "libx265_plugin.dll": "HEVC encoder", "libtheora_plugin.dll": "",  # decoder too: kept
 }  # fmt: skip
 EXCLUDED.pop("libtheora_plugin.dll")
-# Stream output and muxers: the AI worker needs only #transcode + #std into a WAV file.
-KEEP_ONLY = {
-    "stream_out": {"libstream_out_transcode_plugin.dll", "libstream_out_standard_plugin.dll",
-                   "libstream_out_dummy_plugin.dll"},
-    "mux": {"libmux_wav_plugin.dll", "libmux_dummy_plugin.dll"},
-}  # fmt: skip
+# Folders where only some plugins are kept (none since 0.11; stream output and muxers are excluded).
+KEEP_ONLY: dict[str, set[str]] = {}
 
 
 def _symbol(dll: ctypes.CDLL, name: str) -> str:

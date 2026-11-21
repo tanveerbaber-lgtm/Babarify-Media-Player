@@ -123,14 +123,6 @@ class Transcript:
 
 
 @dataclass(frozen=True)
-class SpokenHit:
-    path: str
-    title: str
-    start_ms: int
-    text: str  # the matching cue, with the matched words in [brackets]
-
-
-@dataclass(frozen=True)
 class Bookmark:
     """A user's named point in a file (M8). Kept per file, by path_key, like history."""
 

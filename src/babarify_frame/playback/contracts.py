@@ -50,7 +50,6 @@ from babarify_frame.core.models import (
     SubtitleStyle,
     TrackKind,
 )
-from babarify_frame.core.network import STREAM_SCHEMES, validate_stream_url
 from babarify_frame.playback.lifecycle import can_transition, command_allowed
 
 log = logging.getLogger(__name__)
@@ -156,12 +155,15 @@ class PlaybackEngine(ABC):
         raise PlaybackError(ErrorCode.UNSUPPORTED, "the equalizer is not supported")
 
 
+# Addresses of files on other computers or the internet. The player only opens files on this PC.
+NETWORK_SCHEMES = frozenset({"http", "https", "rtsp", "rtmp", "mms", "ftp", "udp", "rtp", "smb"})
+
+
 def normalize_local_uri(uri: str, allowed_schemes: frozenset[str]) -> str:
     """Validate a media URI and return a canonical form.
 
-    Plain paths and ``file:`` URIs must point at an existing file. Network addresses
-    (http, https, rtsp) go through ``validate_stream_url`` (M8); other schemes must be listed
-    by the engine (e.g. the test engine's ``mock:``).
+    Plain paths and ``file:`` URIs must point at an existing file. Network addresses are refused: the
+    player is local only. Other schemes must be listed by the engine (e.g. the test engine's ``mock:``).
     """
     if not isinstance(uri, str) or not uri.strip():
         raise PlaybackError(ErrorCode.INVALID_ARGUMENT, "media URI must be a non-empty string")
@@ -171,8 +173,10 @@ def normalize_local_uri(uri: str, allowed_schemes: frozenset[str]) -> str:
     parts = urlsplit(uri)
     # A single letter "scheme" is a Windows drive (C:\...), not a URI scheme.
     scheme = parts.scheme.lower() if len(parts.scheme) > 1 else ""
-    if scheme in STREAM_SCHEMES:
-        return validate_stream_url(uri, allowed_schemes & STREAM_SCHEMES)
+    if scheme in NETWORK_SCHEMES:
+        raise PlaybackError(
+            ErrorCode.UNSUPPORTED, "network addresses aren't supported: Babarify plays files on this PC"
+        )
     if scheme and scheme != "file":
         if scheme not in allowed_schemes:
             raise PlaybackError(ErrorCode.UNSUPPORTED, f"URI scheme '{scheme}' is not supported")

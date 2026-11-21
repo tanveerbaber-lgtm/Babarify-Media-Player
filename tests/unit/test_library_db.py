@@ -350,15 +350,34 @@ def test_bookmarks_are_kept_per_file_in_time_order(tmp_path: Path) -> None:
     db.close()
 
 
-def test_bookmark_limit_and_stream_addresses(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_bookmark_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(dbmod, "MAX_BOOKMARKS_PER_FILE", 3)
     db = LibraryDatabase(tmp_path / "library.db")
-    url = "https://example.com/show.mp4?token=1"
+    url = "C:/Films/show.mp4"
     for ms in (1, 2, 3):
         db.add_bookmark(url, ms * 1000, "")
     with pytest.raises(LibraryError):
         db.add_bookmark(url, 4000, "")
     assert db.add_bookmark("C:/other.mkv", -5, "").position_ms == 0  # clamped
+    db.close()
+
+
+def test_network_addresses_from_older_versions_are_never_listed(tmp_path: Path) -> None:
+    """Versions before 0.11 could play streams. Their history stays in the database but isn't shown."""
+    path = tmp_path / "library.db"
+    db = LibraryDatabase(path)
+    db.record_play("C:/Music/song.mp3", "song", 200_000)
+    db.close()
+    with sqlite3.connect(path) as conn:  # as 0.10 recorded an internet radio station
+        conn.execute(
+            "INSERT INTO history(path_key, path, title, play_count, last_played_at) VALUES (?, ?, ?, 3, 1)",
+            ("https://radio.example/live.mp3", "https://radio.example/live.mp3", "Radio"),
+        )
+    db = LibraryDatabase(path)
+    assert [e.path for e in db.recent()] == ["C:/Music/song.mp3"]
+    assert db.history_for("https://radio.example/live.mp3") is None
+    assert list(db.play_counts()) == ["C:/Music/song.mp3"]
+    assert db.history_count() == 2  # nothing was deleted
     db.close()
 
 

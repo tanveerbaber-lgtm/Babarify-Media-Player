@@ -109,6 +109,14 @@ A feasibility prototype only, with no version planned yet
 
 ## Windows (next version, not released)
 
+- Changed: Babarify Media Player is now a local player. It plays files on this PC and makes no network
+  connections of its own. Network streams and internet radio (File → Open network stream, dropped links)
+  are removed, and the bundled engine no longer includes its network plugins.
+- Removed: the optional AI subtitles and spoken-word search. The program is about 255 MB smaller, with a
+  third fewer files. If you used them, Settings → Privacy → Delete old AI data removes the speech models
+  and generated subtitles they left; nothing is deleted unless you choose it.
+- Changed: stream addresses in your history from earlier versions are no longer listed (they aren't deleted).
+- Removed: the unused mpv engine prototype (developers only).
 - Changed: a new app icon, a blue "B" with a play button, green sound bars and a green swoosh on a glossy blue
   tile, for the program, the installer, the taskbar and the left bar. The tagline is now "Play • Enjoy • Anytime".
 - Fixed: with a background picture, the Continue watching row on Home showed a second, squeezed copy of it.

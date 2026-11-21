@@ -6,7 +6,7 @@
 ; from when the app was called Babarify Frame moves it out of that folder; its data folders stay.
 ; File associations are optional (unticked) and only add "Open with" entries: Babarify never
 ; takes over a file type; Windows asks the user to choose defaults.
-; User data (settings, library, history, bookmarks, generated subtitles, models, logs) is kept
+; User data (settings, library, history, bookmarks, logs, and any AI data left by 0.9 and 0.10) is kept
 ; on uninstall unless the user chooses to remove it.
 
 #ifndef AppVersion
@@ -49,15 +49,6 @@ SetupLogging=yes
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
-[Types]
-Name: "full"; Description: "Full installation (with local AI features)"
-Name: "compact"; Description: "Compact installation (about 240 MB smaller, no AI features)"
-Name: "custom"; Description: "Custom installation"; Flags: iscustom
-
-[Components]
-Name: "main"; Description: "Babarify Media Player"; Types: full compact custom; Flags: fixed
-Name: "ai"; Description: "Local AI features: subtitles from speech, spoken-word search (runs on this PC; about 240 MB)"; Types: full
-
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
 Name: "openwith"; Description: "Offer {#AppName} in ""Open with"" for video and audio files (does not change your default apps)"; Flags: unchecked
@@ -70,11 +61,12 @@ Type: files; Name: "{autoprograms}\Babarify Frame.lnk"
 Type: files; Name: "{autodesktop}\Babarify Frame.lnk"
 Type: filesandordirs; Name: "{app}\_internal"
 Type: filesandordirs; Name: "{app}\engines"
+Type: filesandordirs; Name: "{app}\licenses"
+; The local AI component of 0.9 and 0.10 (removed in 0.11).
 Type: filesandordirs; Name: "{app}\ai"
 
 [Files]
-Source: "{#DistDir}\*"; DestDir: "{app}"; Excludes: "\ai\*"; Components: main; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "{#DistDir}\ai\*"; DestDir: "{app}\ai"; Components: ai; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#DistDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"
@@ -139,7 +131,7 @@ begin
     Local := ExpandConstant('{localappdata}\Babarify\Frame');
     if (DirExists(Roaming) or DirExists(Local)) and
        (MsgBox('Also delete your Babarify Media Player data on this PC?' + #13#10 + #13#10 +
-               'Settings, library, history, bookmarks, generated subtitles, speech models and logs.' + #13#10 +
+               'Settings, library, history, bookmarks and logs.' + #13#10 +
                'Your media files are never touched. Choose No to keep them for a later install.',
                mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES) then
     begin

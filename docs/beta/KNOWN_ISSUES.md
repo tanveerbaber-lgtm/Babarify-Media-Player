@@ -14,9 +14,7 @@ linked issue if you have new information.
 | Picture | Gamma is only available with hardware decoding switched off | Settings → Hardware decoding: Off | M7 |
 | Sound | Volume above 100 % has no limiter and can distort loud passages | Use boost only for quiet files | M7 |
 | Subtitles | One subtitle track is shown at a time | — | M5 |
-| Streams | DASH streams are not supported; RTSP is fetched by libVLC directly | Use the HLS address if the service offers one | M8 |
 | Previews | Some AV1 files show no preview picture for some positions; 4K previews are slow | — | M8 |
-| AI | Generated subtitles are a machine draft; speed is about 6× real time (base model) on a mid-range laptop CPU | Use the tiny model for speed | M9 |
 | Library | Moving or renaming a file loses its history, bookmarks and generated subtitles | — | M6 |
 | Music | There is a short gap (about 0.4 s) between songs; playback can't run them together | Fade between songs makes the change smooth | 0.10.0 |
 | Music | Fade between songs fades out and in; the songs don't overlap | — | 0.10.0 |

@@ -1,14 +1,11 @@
 """Real-engine tests. Skipped when an engine library or the generated media is missing.
 
-libVLC (the selected engine, ADR-0001) runs by default. mpv runs only with
-BABARIFY_TEST_MPV=1: processes that create several mpv instances end in an access
-violation (M1 finding S1), which would fail the whole pytest process.
+libVLC is the app's only engine (ADR-0001; the mpv prototype was removed in 0.11).
 """
 
 from __future__ import annotations
 
 import json
-import os
 import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -35,17 +32,9 @@ TIMEOUT_MS = 15_000
 
 
 def _engine_params() -> list[Any]:
-    # Probing mpv starts and ends a live mpv handle, which can crash this process (S1, R33),
-    # so mpv is probed only when its tests are switched on.
     factory = default_factory()
     params = []
-    for name in ("libvlc", "mpv"):
-        if name == "mpv" and os.environ.get("BABARIFY_TEST_MPV") != "1":
-            skip = pytest.mark.skip(
-                reason="mpv is the alternate engine; set BABARIFY_TEST_MPV=1 (see M1 finding S1)"
-            )
-            params.append(pytest.param(name, marks=[skip], id=name))
-            continue
+    for name in ("libvlc",):
         probe = factory.probe(name)
         marks = [pytest.mark.skipif(not probe.available, reason=f"{name} unavailable: {probe.detail}")]
         params.append(pytest.param(name, marks=marks, id=name))

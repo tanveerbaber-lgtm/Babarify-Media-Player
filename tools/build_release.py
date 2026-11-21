@@ -105,7 +105,6 @@ def main() -> int:
         "--distpath", str(BUILD / "dist"), "--workpath", str(BUILD / "pyinstaller"),
         str(ROOT / "packaging" / "babarify.spec"))  # fmt: skip
     dist = BUILD / "dist" / "Babarify Media Player"
-    shutil.copytree(BUILD / "dist" / "ai", dist / "ai")  # the optional local AI component
     shutil.copytree(engine, dist / "engines" / "vlc", ignore=shutil.ignore_patterns("plugins.json"))
     shutil.copy2(ROOT / "LICENSE", dist / "LICENSE.txt")
     shutil.copy2(ROOT / "docs" / "PRIVACY.md", dist / "PRIVACY.txt")

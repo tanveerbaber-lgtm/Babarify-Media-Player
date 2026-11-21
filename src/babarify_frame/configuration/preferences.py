@@ -20,7 +20,6 @@ from dataclasses import asdict, dataclass, field, fields, replace
 from pathlib import Path
 from typing import Any
 
-from babarify_frame.ai.models import DEFAULT_MODEL, MODELS, SPEECH_LANGUAGES
 from babarify_frame.core.enhancements import (
     MAX_PROFILES,
     EnhancementProfile,
@@ -129,10 +128,6 @@ class Preferences:
     colour_theme: str = DEFAULT_THEME  # a THEMES key
     background_picture: str = ""  # a picture of the person's own, behind the main pages
     show_status_bar: bool = False  # the line of technical details along the bottom of the window
-    # Local AI (M9): off until the user switches it on; nothing is uploaded
-    ai_enabled: bool = False
-    ai_model: str = "base"  # an ai.models.MODELS key
-    ai_language: str = ""  # an ai.models.SPEECH_LANGUAGES key; "" = detect
     window: WindowGeometry | None = field(default=None)
 
     @classmethod
@@ -199,8 +194,6 @@ class Preferences:
             repeat_mode=self.repeat_mode if self.repeat_mode in set(RepeatMode) else "off",
             visual_style=self.visual_style if self.visual_style in set(VisualStyle) else "auto",
             colour_theme=self.colour_theme if self.colour_theme in THEMES else DEFAULT_THEME,
-            ai_model=self.ai_model if self.ai_model in MODELS else DEFAULT_MODEL,
-            ai_language=self.ai_language if self.ai_language in SPEECH_LANGUAGES else "",
             picture=self.picture.normalized(),
             equalizer=self.equalizer.normalized(),
             profiles=_unique_profiles(self.profiles),

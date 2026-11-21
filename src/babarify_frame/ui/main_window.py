@@ -52,14 +52,12 @@ from PySide6.QtWidgets import (
 )
 
 from babarify_frame import PRODUCT_NAME, TAGLINE, __version__
-from babarify_frame.ai import models as ai_models
 from babarify_frame.configuration.preferences import Preferences, PreferencesStore, WindowGeometry
 from babarify_frame.core.enhancements import EqualizerSettings
 from babarify_frame.core.models import SUBTITLE_EXTENSIONS, MediaInfo, PlaybackState
 from babarify_frame.core.music import SLEEP_MINUTES, STYLE_LABELS, VisualStyle
-from babarify_frame.core.network import is_network_uri
 from babarify_frame.core.themes import THEMES
-from babarify_frame.library import backup
+from babarify_frame.library import backup, legacy_ai
 from babarify_frame.library.database import LibraryDatabase
 from babarify_frame.library.models import HistoryEntry
 from babarify_frame.library.service import LibraryService
@@ -67,22 +65,12 @@ from babarify_frame.playback.controller import PlaybackController
 from babarify_frame.playback.factory import EngineFactory
 from babarify_frame.playback.preview import FramePreview
 from babarify_frame.ui import theme
-from babarify_frame.ui.ai import (
-    GenerateSubtitlesDialog,
-    JobResult,
-    ModelDownload,
-    SpokenSearchDialog,
-    SubtitleJob,
-    ai_installed,
-    generated_size,
-)
 from babarify_frame.ui.audio_view import QueueDialog
 from babarify_frame.ui.bookmarks import BookmarksDialog
 from babarify_frame.ui.diagnostics import PlaybackInfoDialog
 from babarify_frame.ui.enhancements import EnhancementsDialog
 from babarify_frame.ui.lyrics_dialog import LyricsDialog
 from babarify_frame.ui.media_info import MediaInfoDialog
-from babarify_frame.ui.network import NetworkStreamDialog
 from babarify_frame.ui.pages.home import SHORTCUTS, HomePage
 from babarify_frame.ui.pages.library import HiddenFilesDialog, LibraryPage
 from babarify_frame.ui.pages.player import VOLUME_STEP, PlayerPage
@@ -120,12 +108,6 @@ class MainWindow(QMainWindow):
         self._enhancements: EnhancementsDialog | None = None
         self._media_info_dialog: MediaInfoDialog | None = None
         self._bookmarks_dialog: BookmarksDialog | None = None
-        # Local AI (M9)
-        self.subtitle_job = SubtitleJob(self)
-        self.model_download = ModelDownload(self)
-        self._generate_dialog: GenerateSubtitlesDialog | None = None
-        self._spoken_dialog: SpokenSearchDialog | None = None
-        self._job_media: str | None = None
 
         self.setWindowTitle(PRODUCT_NAME)
         self.setWindowIcon(icon)
@@ -229,7 +211,6 @@ class MainWindow(QMainWindow):
         K = QKeySequence
         p = self.player
         self.open_action = self._action("&Open file…", [K(K.StandardKey.Open)], self.choose_file)
-        self.open_stream_action = self._action("Open network &stream…", [K("Ctrl+N")], self.choose_stream)
         quit_action = self._action("E&xit", [K("Ctrl+Q")], self.close)
         self.home_action = self._action("&Home", [K("Ctrl+1")], lambda: self.show_page(self.home))
         self.player_action = self._action("&Now Playing", [K("Ctrl+2")], lambda: self.show_page(self.player))
@@ -298,12 +279,6 @@ class MainWindow(QMainWindow):
         self.previous_chapter_action = self._action("Previous chap&ter", [K("Ctrl+Left")], p.previous_chapter)
         self.add_bookmark_action = self._action("Add &bookmark", [K("Ctrl+B")], lambda: p.add_bookmark())
         self.bookmarks_action = self._action("Boo&kmarks…", [K("Ctrl+Shift+B")], self.show_bookmarks)
-        self.generate_subtitles_action = self._action(
-            "&Generate subtitles (local AI)…", [K("Ctrl+Shift+G")], self.show_generate_subtitles
-        )
-        self.spoken_search_action = self._action(
-            "Search &spoken words…", [K("Ctrl+Shift+F")], self.show_spoken_search
-        )
         self.media_info_action = self._action(
             "&Media information…", [K("Ctrl+Shift+I")], self.show_media_info
         )
@@ -332,7 +307,6 @@ class MainWindow(QMainWindow):
         menus = self.menuBar()
         file_menu = menus.addMenu("&File")
         file_menu.addAction(self.open_action)
-        file_menu.addAction(self.open_stream_action)
         file_menu.addAction(self.load_subtitle_action)
         file_menu.addAction(self.add_folder_action)
         file_menu.addSeparator()
@@ -369,8 +343,6 @@ class MainWindow(QMainWindow):
         for action in self._track_actions[2:]:
             tracks_menu.addAction(action)
         tracks_menu.addAction(self.sync_action)
-        tracks_menu.addSeparator()
-        tracks_menu.addAction(self.generate_subtitles_action)
         video_menu = menus.addMenu("Vi&deo")
         video_menu.addAction(self.enhancements_action)
         video_menu.addSeparator()
@@ -388,7 +360,6 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.fullscreen_action)
         view_menu.addAction(self.info_action)
         view_menu.addAction(self.media_info_action)
-        view_menu.addAction(self.spoken_search_action)
         self.status_bar_action = QAction("Status &bar", self)
         self.status_bar_action.setCheckable(True)
         self.status_bar_action.setChecked(self._prefs.show_status_bar)
@@ -432,14 +403,7 @@ class MainWindow(QMainWindow):
         self.home.forget_requested.connect(self._forget)
         self.player.history_changed.connect(self._history_changed)
         self.player.bookmarks_changed.connect(self._refresh_bookmarks)
-        self.settings.download_model_requested.connect(self.download_model)
-        self.settings.delete_model_requested.connect(self.delete_model)
-        self.settings.delete_generated_requested.connect(self.delete_generated_subtitles)
-        self.subtitle_job.stage.connect(self._job_stage)
-        self.subtitle_job.progress.connect(self._job_progress)
-        self.subtitle_job.finished.connect(self._job_finished)
-        self.model_download.message.connect(lambda text: self._refresh_ai_status(busy=text))
-        self.model_download.finished.connect(self._download_finished)
+        self.settings.delete_old_ai_requested.connect(self.delete_old_ai_data)
         self.player.media_info_changed.connect(self._refresh_media_info)
         self.player.media_info_changed.connect(self._update_actions)
         self.player.picture_changed.connect(lambda v: self._remember(picture=v))
@@ -486,7 +450,7 @@ class MainWindow(QMainWindow):
         elif page is self.library:
             self.library.refresh()
         elif page is self.settings:
-            self._refresh_ai_status()
+            self._refresh_old_ai_data()
         self._update_actions()
 
     def _update_actions(self) -> None:
@@ -525,7 +489,6 @@ class MainWindow(QMainWindow):
         for action in self._track_actions:
             action.setEnabled(on_player and p.can_change_tracks)
         self.sync_action.setEnabled(p.has_media and p.state is not PlaybackState.ERROR)
-        self.open_stream_action.setEnabled(ready)
         has_chapters = on_player and p.is_seekable and len(p.chapters) > 1
         for action in (self.next_chapter_action, self.previous_chapter_action):
             action.setEnabled(has_chapters)
@@ -533,13 +496,6 @@ class MainWindow(QMainWindow):
         self.add_bookmark_action.setEnabled(on_player and p.can_bookmark)
         self.bookmarks_action.setEnabled(p.has_media)
         self.media_info_action.setEnabled(ready)
-        ai_on = self._prefs.ai_enabled and ai_installed()
-        uri = p.current_uri
-        local_media = uri is not None and "://" not in uri
-        self.generate_subtitles_action.setEnabled(ai_on and local_media)
-        self.generate_subtitles_action.setVisible(ai_on)
-        self.spoken_search_action.setEnabled(ai_on)
-        self.spoken_search_action.setVisible(ai_on)
 
     # ---------------------------------------------------------- commands
     def choose_file(self) -> None:
@@ -553,20 +509,6 @@ class MainWindow(QMainWindow):
         self.show_page(self.player)
         self.player.open_path(path)
 
-    def choose_stream(self) -> NetworkStreamDialog | None:
-        """Ask for a network address (M8). Returns the dialog (tests drive it); opens on accept."""
-        if not self.player.engine_is_ready:
-            return None
-        caps = self.player.capabilities_or_none()
-        recent = []
-        if self._prefs.remember_history:
-            recent = [e.path for e in self.library_service.db.recent(50) if is_network_uri(e.path)][:8]
-        dialog = NetworkStreamDialog(caps.network_schemes if caps else frozenset(), recent, self)
-        dialog.accepted.connect(lambda: self.open_path(dialog.url) if dialog.url else None)
-        dialog.open()
-        return dialog
-
-    # ------------------------------------------- chapters, bookmarks, info (M8)
     def _fill_chapters_menu(self) -> None:
         menu = self.chapters_menu
         menu.clear()
@@ -598,170 +540,26 @@ class MainWindow(QMainWindow):
             self._bookmarks_dialog.set_bookmarks(name, p.bookmarks, can_add=p.can_bookmark)
         self._update_actions()
 
-    # ----------------------------------------------------------- local AI (M9)
-    def show_generate_subtitles(self) -> GenerateSubtitlesDialog | None:
-        p = self.player
-        uri = p.current_uri
-        if not (self._prefs.ai_enabled and ai_installed()) or uri is None or "://" in uri:
-            return None
-        if self._generate_dialog is None:
-            dialog = GenerateSubtitlesDialog(self)
-            dialog.start_requested.connect(self._start_subtitle_job)
-            dialog.cancel_requested.connect(self.subtitle_job.cancel)
-            dialog.load_existing_requested.connect(self._load_existing_subtitles)
-            dialog.settings_requested.connect(dialog.close)
-            dialog.settings_requested.connect(lambda: self.show_page(self.settings))
-            self._generate_dialog = dialog
-        dialog = self._generate_dialog
-        if not self.subtitle_job.running:
-            dialog.prepare(
-                p.media_name,
-                p.controller.status().duration_ms,
-                ai_models.installed_models(),
-                self._prefs.ai_model,
-                self._prefs.ai_language,
-                self.library_service.db.transcript_for(uri),
-            )
-        dialog.show()
-        dialog.raise_()
-        return dialog
-
-    def _start_subtitle_job(self, model: str, language: str) -> None:
-        uri = self.player.current_uri
-        if uri is None or self.subtitle_job.running:
-            return
-        self._remember(ai_model=model, ai_language=language)
-        self._job_media = uri
-        self.subtitle_job.start(uri, model, language)
-        self.statusBar().showMessage("Generating subtitles on this PC…")
-
-    def _job_stage(self, stage: str) -> None:
-        if self._generate_dialog is not None:
-            self._generate_dialog.show_stage(stage)
-
-    def _job_progress(self, fraction: float) -> None:
-        if self._generate_dialog is not None:
-            self._generate_dialog.show_progress(fraction)
-
-    def _job_finished(self, result: object, error: str) -> None:
-        media, self._job_media = self._job_media, None
-        dialog = self._generate_dialog
-        if not isinstance(result, JobResult) or media is None:
-            text = "Stopped." if error == "cancelled" else f"Subtitles could not be generated: {error}"
-            if dialog is not None:
-                dialog.show_result(text)
-            self.statusBar().showMessage(text)
-            return
-        if not result.cues:
-            text = "No speech was found in this file."
-            if dialog is not None:
-                dialog.show_result(text)
-            self.statusBar().showMessage(text)
-            return
-        name = Path(media).name
-        previous = self.library_service.db.transcript_for(media)
-        if previous is not None and Path(previous.srt_path) != result.srt:
-            Path(previous.srt_path).unlink(missing_ok=True)  # replaced: keep no orphan files
-        self.library_service.db.save_transcript(
-            media, name, str(result.srt), result.language, result.model, [(a, t) for a, _b, t in result.cues]
-        )
-        language = ai_models.SPEECH_LANGUAGES.get(result.language, result.language)
-        text = f"Done: {len(result.cues)} lines in {language} (machine-generated)."
-        if self.player.current_uri == media and self.player.can_load_subtitles:
-            self.player.load_subtitle_file(str(result.srt))
-            text += " Added to the subtitle tracks."
-        if dialog is not None:
-            dialog.show_progress(1.0)
-            dialog.show_result(text)
-        self.statusBar().showMessage(text)
-        self._refresh_ai_status()
-
-    def _load_existing_subtitles(self) -> None:
-        uri = self.player.current_uri
-        transcript = self.library_service.db.transcript_for(uri) if uri else None
-        if transcript is not None and Path(transcript.srt_path).is_file() and self.player.can_load_subtitles:
-            self.player.load_subtitle_file(transcript.srt_path)
-            if self._generate_dialog is not None:
-                self._generate_dialog.show_result("Loaded the machine-generated subtitles.")
-
-    def show_spoken_search(self) -> SpokenSearchDialog | None:
-        if not self._prefs.ai_enabled:
-            return None
-        if self._spoken_dialog is None:
-            dialog = SpokenSearchDialog(self.library_service.db.search_spoken, self)
-            dialog.open_requested.connect(self._open_spoken_hit)
-            self._spoken_dialog = dialog
-        self._spoken_dialog.show()
-        self._spoken_dialog.raise_()
-        return self._spoken_dialog
-
-    def _open_spoken_hit(self, path: str, position_ms: int) -> None:
-        self.show_page(self.player)
-        self.player.open_at(path, max(0, position_ms - 1000))  # a moment before the words
-
-    def download_model(self, name: str) -> None:
-        model = ai_models.MODELS.get(name)
-        if model is None or self.model_download.running:
-            return
-        answer = QMessageBox.question(
-            self,
-            "Download speech model",
-            f"Download the {model.label} speech model ({model.size / 1e6:.0f} MB) from "
-            f"{model.source} (revision {model.revision[:10]})?\n\nLicence: {ai_models.LICENCE}.\n"
-            "Only the model is downloaded; nothing about you or your media is sent. Files are "
-            "checked against known checksums before use.",
-        )
-        if answer != QMessageBox.StandardButton.Yes:
-            return
-        self.model_download.start(name)
-        self._refresh_ai_status(busy="Downloading…")
-
-    def _download_finished(self, name: str, error: str) -> None:
-        model = ai_models.MODELS[name]
-        text = f"{model.label} model installed" if not error else f"Download failed: {error}"
-        self.statusBar().showMessage(text)
-        self._refresh_ai_status()
-        if self._generate_dialog is not None and self._generate_dialog.isVisible():
-            self.show_generate_subtitles()
-
-    def delete_model(self, name: str) -> None:
-        model = ai_models.MODELS.get(name)
-        if model is None or self.subtitle_job.running:
-            return
-        answer = QMessageBox.question(
-            self, "Delete speech model", f"Delete the {model.label} model ({model.size / 1e6:.0f} MB)?"
-        )
-        if answer == QMessageBox.StandardButton.Yes:
-            ai_models.delete(name)
-            self._refresh_ai_status()
-
-    def delete_generated_subtitles(self) -> None:
+    # --------------------------------------------- data left by the removed AI feature
+    def delete_old_ai_data(self) -> None:
         db = self.library_service.db
-        count = len(db.transcripts())
+        size = legacy_ai.leftover_bytes(db)
+        if not size:
+            return
         answer = QMessageBox.question(
             self,
-            "Delete generated subtitles",
-            f"Delete all {count} machine-generated subtitle files and their search index? Your media "
-            "files and other subtitles are not affected.",
+            "Delete old AI data",
+            f"Delete the speech models and machine-generated subtitles left by earlier versions "
+            f"({size / 1e6:.0f} MB)? Your media files and your own subtitles are not affected.",
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
-        for transcript in db.delete_all_transcripts():
-            srt = Path(transcript.srt_path)
-            srt.unlink(missing_ok=True)
-            with contextlib.suppress(OSError):
-                srt.parent.rmdir()  # the per-file folder, if now empty
-        self.statusBar().showMessage("Generated subtitles deleted")
-        self._refresh_ai_status()
+        legacy_ai.delete_leftovers(db)
+        self.statusBar().showMessage("Old AI data deleted")
+        self._refresh_old_ai_data()
 
-    def _refresh_ai_status(self, busy: str = "") -> None:
-        transcripts = self.library_service.db.transcripts()
-        statuses = {name: ai_models.status(name) for name in ai_models.MODELS}
-        if self.model_download.running and not busy:
-            busy = "Downloading…"
-        self.settings.set_ai_status(
-            statuses, len(transcripts), generated_size(transcripts), busy, installed=ai_installed()
-        )
+    def _refresh_old_ai_data(self) -> None:
+        self.settings.set_old_ai_data(legacy_ai.leftover_bytes(self.library_service.db))
 
     def show_report(self) -> ReportDialog:
         """Help → Report a problem (M11): text to copy into the issue form; nothing is sent."""
@@ -1025,8 +823,6 @@ class MainWindow(QMainWindow):
         history_toggled = prefs.remember_history != self._prefs.remember_history
         theme_changed = prefs.colour_theme != self._prefs.colour_theme
         background_changed = prefs.background_picture != self._prefs.background_picture
-        if not prefs.ai_enabled and self.subtitle_job.running:
-            self.subtitle_job.cancel()  # switching AI off stops work in progress
         self._prefs = replace(
             prefs,
             volume=self._prefs.volume,
@@ -1057,7 +853,6 @@ class MainWindow(QMainWindow):
             self._home_dirty = True  # Its cards hold pictures drawn in the old colours.
         if history_toggled:
             self._home_dirty = True
-        self._refresh_ai_status()
         self._update_actions()
 
     def shuffle_list(self, paths: list[str]) -> None:
@@ -1197,8 +992,7 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------ window
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
         urls = event.mimeData().urls()
-        dropped_stream = bool(urls) and is_network_uri(urls[0].toString())  # a link from a browser (M8)
-        if self.player.engine_is_ready and urls and (urls[0].isLocalFile() or dropped_stream):
+        if self.player.engine_is_ready and urls and urls[0].isLocalFile():
             event.acceptProposedAction()
             self.home.set_drag_active(True)
 
@@ -1209,10 +1003,6 @@ class MainWindow(QMainWindow):
     def dropEvent(self, event: QDropEvent) -> None:
         self.home.set_drag_active(False)
         urls = event.mimeData().urls()
-        if urls and not urls[0].isLocalFile() and is_network_uri(urls[0].toString()):
-            self.open_path(urls[0].toString())  # validated by the engine like a typed address
-            event.acceptProposedAction()
-            return
         if urls and urls[0].isLocalFile() and Path(urls[0].toLocalFile()).is_dir():
             self.add_library_folder(urls[0].toLocalFile())  # a dropped folder joins the library
             event.acceptProposedAction()
@@ -1262,13 +1052,10 @@ class MainWindow(QMainWindow):
             "<tr><td><b>J / K</b></td><td>Audio 50 ms earlier / later</td></tr>"
             "<tr><td><b>Ctrl+D</b></td><td>Sync and delay</td></tr>"
             "<tr><td><b>Ctrl+Shift+O</b>&nbsp;&nbsp;</td><td>Load subtitle file</td></tr>"
-            "<tr><td><b>Ctrl+N</b></td><td>Open network stream</td></tr>"
             "<tr><td><b>Ctrl+→ / Ctrl+←</b>&nbsp;&nbsp;</td><td>Next / previous chapter</td></tr>"
             "<tr><td><b>Ctrl+B</b></td><td>Add bookmark</td></tr>"
             "<tr><td><b>Ctrl+Shift+B</b>&nbsp;&nbsp;</td><td>Bookmarks</td></tr>"
             "<tr><td><b>Ctrl+Shift+I</b>&nbsp;&nbsp;</td><td>Media information</td></tr>"
-            "<tr><td><b>Ctrl+Shift+G</b>&nbsp;&nbsp;</td><td>Generate subtitles (local AI)</td></tr>"
-            "<tr><td><b>Ctrl+Shift+F</b>&nbsp;&nbsp;</td><td>Search spoken words</td></tr>"
             "<tr><td><b>F1</b></td><td>This list</td></tr>"
         )
         QMessageBox.information(

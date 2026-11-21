@@ -49,7 +49,6 @@ from babarify_frame.core.models import (
     TrackKind,
 )
 from babarify_frame.core.music import RepeatMode, VisualStyle, fade_level, index_after_end, shuffled
-from babarify_frame.core.network import is_network_uri, stream_display_name
 from babarify_frame.library.database import LibraryDatabase, LibraryError
 from babarify_frame.library.history import SAVE_INTERVAL_MS, resume_position
 from babarify_frame.library.models import Bookmark
@@ -387,10 +386,7 @@ class PlayerPage(QWidget):
             if start:
                 self._resume_position = start
                 self._resumed_from_history = True
-        if is_network_uri(path):
-            self._media_name = stream_display_name(path)  # never the query: it can hold tokens
-        else:
-            self._media_name = Path(path).name if "://" not in path else path
+        self._media_name = Path(path).name if "://" not in path else path
         self._set_preview(None)
         self._load_bookmarks()
         self._geometry = ("", "", 0.0)  # aspect, crop and zoom belong to a file
@@ -1416,13 +1412,7 @@ class PlayerPage(QWidget):
         self._duration_ms = info.duration_ms
         self._update_marks()
         named_audio = self._named_as_audio(self._current_uri)
-        if (
-            not named_audio
-            and info.video_codec
-            and info.duration_ms
-            and self._current_uri
-            and not is_network_uri(self._current_uri)
-        ):
+        if not named_audio and info.video_codec and info.duration_ms and self._current_uri:
             self._set_preview(self._current_uri)
         self.media_info_changed.emit()
         self.controls.set_position(self._controller.status().position_ms, info.duration_ms)
