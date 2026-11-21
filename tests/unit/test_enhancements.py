@@ -73,7 +73,7 @@ def test_picture_round_trip_and_default() -> None:
 def test_equalizer_from_untrusted_data() -> None:
     eq = EqualizerSettings.from_dict({"enabled": "yes", "preamp_db": 99, "bands_db": [50, -50, "x", 3]})
     assert eq.enabled is False  # only a real true enables it
-    assert eq.preamp_db == 20.0
+    assert eq.preamp_db == 8.0  # an old file: 99 is clamped to libVLC's 20 dB, which is +8 dB of level
     assert eq.bands_db[:4] == (20.0, -20.0, 0.0, 3.0) and len(eq.bands_db) == 10
     good = EqualizerSettings(True, "Rock", -3.0, (1.0,) * 10)
     assert EqualizerSettings.from_dict(good.to_dict()) == good
@@ -190,3 +190,31 @@ def test_snapshot_refused_for_audio_only(engine: MockEngine, tmp_path: Path) -> 
     with pytest.raises(PlaybackError) as exc:
         engine.take_snapshot(str(tmp_path / "a.png"))
     assert exc.value.code is ErrorCode.UNSUPPORTED
+
+
+# ------------------------------------------------------------ audio chain and relative preamp (M2)
+def test_boost_is_extra_preamp_before_a_limiter() -> None:
+    from babarify_frame.playback.adapters.libvlc_audio import boost_db, engine_equalizer, filter_chain
+
+    assert boost_db(100) == 0 and boost_db(50) == 0
+    assert boost_db(200) == pytest.approx(6.02, abs=0.01)
+    assert engine_equalizer(EqualizerSettings(), 0.0) is None  # no equalizer, no boost: nothing in the chain
+    preamp, bands = engine_equalizer(EqualizerSettings(), boost_db(200)) or (0.0, ())
+    assert preamp == pytest.approx(12 + 6.02, abs=0.01) and set(bands) == {0.0}  # flat, boosted
+    eq = EqualizerSettings(enabled=True, preamp_db=-3.0, bands_db=(2.0,) * 10)
+    assert engine_equalizer(eq, 0.0) == (9.0, (2.0,) * 10)
+    assert engine_equalizer(replace(eq, preamp_db=8.0), 6.0) == (20.0, (2.0,) * 10)  # libVLC's ceiling
+    chain = filter_chain(True, "spatializer:stereo_widen", True)
+    assert chain == "equalizer:spatializer:stereo_widen:compressor"
+    assert filter_chain(False, "", False) == ""
+
+
+def test_old_preamp_values_are_converted_once() -> None:
+    old = {"enabled": True, "preset": "", "preamp_db": 12.0, "bands_db": [0.0] * 10}  # 0.10: libVLC's scale
+    assert EqualizerSettings.from_dict(old).preamp_db == 0.0  # the same sound: normal level
+    assert EqualizerSettings.from_dict({**old, "preamp_db": 5.0}).preamp_db == -7.0  # a value someone set
+    assert EqualizerSettings.from_dict({**old, "preamp_db": 0.0}).preamp_db == 0.0  # the untouched default
+    new = EqualizerSettings(enabled=True, preamp_db=-2.0)
+    assert EqualizerSettings.from_dict(new.to_dict()) == new  # saved by 0.11: not converted again
+    assert EqualizerSettings.from_dict({"enabled": False}).preamp_db == 0.0
+    assert EqualizerSettings(preamp_db=15.0).normalized().preamp_db == 8.0  # +8 dB is libVLC's limit

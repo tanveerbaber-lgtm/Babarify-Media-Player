@@ -206,3 +206,18 @@ Tests: full suite 622 passed (0 skipped; previously 718 passed and 72 skipped, t
 stream and mpv tests); all 139 real-engine tests pass against the trimmed release engine; contrast audit passes.
 
 Still to verify by hand: a run with Wi-Fi switched off (changing the PC's network settings is left to the owner).
+
+## 11. Milestone 2 results (21 November 2026, not committed)
+
+| Item | Result | Evidence |
+|---|---|---|
+| Clipping with volume boost | **Fixed.** Boost is extra equalizer preamp before a limiter; libVLC's own gain (after every filter) is never used above 100 %. A -1 dBFS signal at 200 %: 60 % of samples clipped before, under 0.1 % after | `tools/clipping_check.py`; `tests/integration/test_audio_chain_engine.py` |
+| Sound effects (Room, Wider stereo) | **Fixed: they never loaded in 0.10** (a per-media `:audio-filter` option is ignored by libVLC 3). Set through libvlccore's `var_SetChecked` on the player and the live audio output (`playback/adapters/libvlc_audio.py`) | verbose engine log; integration test |
+| Equalizer 12 dB quieter | **Fixed.** libVLC's equalizer is unity at preamp +12 dB; the preamp is now relative (0 = no change) and older saved values are converted so the sound doesn't change | measured; unit tests |
+| History after move or rename | **Done.** Unambiguous content-key matches carry history, favourite, hidden mark, edits, bookmarks, playlist entries and lyrics | `tests/unit/test_library_db.py` (rename, move between folders, copies and ambiguous moves left alone) |
+| Queue save and restore | **Done.** Restored paused; only with history on; cleared by Clear history; never in backups | `tests/ui/test_queue_restore_ui.py` |
+| Auto-play next video | **Done.** Off by default; natural name order; not during a queue | unit and UI tests |
+| Gapless | **Not possible with libVLC 3.** Gap measured 110–130 ms (median 118 ms); a preloaded second player only reaches 109 ms | `tools/gapless_check.py`, 5 runs each |
+| Genuine crossfade | **Feasible, not built yet.** Two players overlap (about 0.2 s when started 1.5 s early, 0.8 s at 2 s); a second player needs about 1.2 s to start, so it must be preloaded. Needs two engines in the player: proposed as its own step | `tools/gapless_check.py` |
+| Rotation restart | Unchanged: libVLC 3 applies rotation only when playback starts | — |
+| Start-up | Unchanged in M2 (M1 already: cold 9.2 s → 4.0 s) | — |

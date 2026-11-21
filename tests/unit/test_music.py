@@ -191,3 +191,19 @@ def test_damaged_files_simply_have_no_picture(tmp_path: Path, data: bytes) -> No
 
 def test_a_missing_file_has_no_picture(tmp_path: Path) -> None:
     assert read_embedded_picture(tmp_path / "gone.mp3") is None
+
+
+def test_next_in_folder_uses_natural_name_order(tmp_path: Path) -> None:
+    from babarify_frame.core.models import VIDEO_EXTENSIONS
+    from babarify_frame.core.music import natural_key, next_in_folder
+
+    for name in ("Episode 10.mkv", "episode 2.mp4", "Episode 1.mkv", "notes.txt", ".hidden.mkv", "song.mp3"):
+        (tmp_path / name).write_bytes(b"\x00")
+    assert sorted(["b10", "b2", "a"], key=natural_key) == ["a", "b2", "b10"]
+    first = str(tmp_path / "Episode 1.mkv")
+    second = next_in_folder(first, VIDEO_EXTENSIONS)
+    assert second is not None and Path(second).name == "episode 2.mp4"
+    third = next_in_folder(second, VIDEO_EXTENSIONS)
+    assert third is not None and Path(third).name == "Episode 10.mkv"
+    assert next_in_folder(third, VIDEO_EXTENSIONS) is None
+    assert next_in_folder(str(tmp_path / "gone" / "x.mkv"), VIDEO_EXTENSIONS) is None

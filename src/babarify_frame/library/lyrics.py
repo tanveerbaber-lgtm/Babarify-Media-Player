@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import re
 from dataclasses import dataclass
@@ -74,6 +75,15 @@ def save(media_path: str, text: str, folder: Path | None = None) -> None:
     path = _saved_path(media_path, folder)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def move(old_media_path: str, new_media_path: str, folder: Path | None = None) -> None:
+    """Saved lyrics follow a file that was moved or renamed (lyrics already saved for the new path win)."""
+    old, new = _saved_path(old_media_path, folder), _saved_path(new_media_path, folder)
+    if old == new or not old.is_file() or new.exists():
+        return
+    with contextlib.suppress(OSError):  # if it fails, the lyrics stay with the old path; nothing is lost
+        old.replace(new)
 
 
 def _saved_path(media_path: str, folder: Path | None) -> Path:

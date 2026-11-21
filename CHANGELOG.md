@@ -117,6 +117,17 @@ A feasibility prototype only, with no version planned yet
   and generated subtitles they left; nothing is deleted unless you choose it.
 - Changed: stream addresses in your history from earlier versions are no longer listed (they aren't deleted).
 - Removed: the unused mpv engine prototype (developers only).
+- Fixed: volume above 100 % no longer distorts. The boost now happens before a limiter, and 200 % means twice as
+  loud (+6 dB). Before, 126 % already clipped 41 % of a loud song's samples (measured).
+- Fixed: the Room and Wider stereo sound effects never actually played; now they do.
+- Fixed: switching the equalizer on made everything about 12 dB quieter. The preamp is now shown relative to
+  normal level (0 dB = no change). Preamp values you set are converted and sound as before; the untouched
+  default now means normal level.
+- New: a moved or renamed file keeps its history, resume point, favourite, edited details, bookmarks, lyrics and
+  playlist entries, when the library finds it in its new place.
+- New: the queue is kept when you close the app and comes back, paused where it was, next time (only while
+  play history is switched on; Clear history forgets it, and backups don't include it).
+- New: Settings → Fullscreen → "When a video ends, play the next video in its folder" (off by default).
 - Changed: a new app icon, a blue "B" with a play button, green sound bars and a green swoosh on a glossy blue
   tile, for the program, the installer, the taskbar and the left bar. The tagline is now "Play • Enjoy • Anytime".
 - Fixed: with a background picture, the Continue watching row on Home showed a second, squeezed copy of it.

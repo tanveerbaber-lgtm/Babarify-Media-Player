@@ -23,6 +23,7 @@ Findings encoded here (see docs/milestones/M1/benchmark-report.md):
 from __future__ import annotations
 
 import ctypes
+import logging
 import os
 import re
 import threading
@@ -35,6 +36,7 @@ from typing import Any, ClassVar
 
 from babarify_frame.core.enhancements import (
     PICTURE_RANGES,
+    PREAMP_UNITY_DB,
     EqualizerSettings,
     PictureSettings,
     VideoTransform,
@@ -54,10 +56,18 @@ from babarify_frame.core.models import (
 )
 from babarify_frame.core.music import AUDIO_EFFECTS
 from babarify_frame.playback.adapters._engine_paths import add_dll_dir, find_vlc_dir
+from babarify_frame.playback.adapters.libvlc_audio import (
+    LIMITER_ARGS,
+    FilterChain,
+    boost_db,
+    engine_equalizer,
+    filter_chain,
+)
 from babarify_frame.playback.contracts import EngineBase
 from babarify_frame.playback.factory import EngineProbe
 
 S = PlaybackState
+_log = logging.getLogger(__name__)
 _HW_RE = re.compile(r"Using (.+?) for hardware decoding")
 _VOUT_RE = re.compile(r'using (?:vout display|video output) module "([^"]+)"')
 # libVLC fourcc -> FFmpeg/ffprobe codec name (the vocabulary used across the app).
@@ -121,7 +131,7 @@ _SUB_MARGIN = {
 EXTERNAL_SUBTITLE_TIMEOUT_S = 2.5
 # Instance options for every player instance. --no-lua: Lua playlist and artwork scripts would fetch
 # web pages on their own; the player is local only.
-BASE_ARGS = ("--no-video-title-show", "--no-lua")
+BASE_ARGS = ("--no-video-title-show", "--no-lua", *LIMITER_ARGS)
 # File tags shown in the media information panel (libVLC Meta name, label).
 _META_FIELDS = (
     ("Title", "Title"), ("Artist", "Artist"), ("AlbumArtist", "Album artist"), ("Album", "Album"),
@@ -377,6 +387,8 @@ class LibVlcEngine(EngineBase):
         self._picture = PictureSettings()
         self._geometry: tuple[str, str, float] = ("", "", 0.0)
         self._equalizer = EqualizerSettings()
+        self._level = 100  # the volume asked for; above 100 it is boost in the filter chain (M2)
+        self._filters: FilterChain | None = None
         self._eq_presets: tuple[str, ...] = ()
         self._eq_bands: tuple[int, ...] = ()
         # Network streams (M8)
@@ -390,6 +402,12 @@ class LibVlcEngine(EngineBase):
         self._instance = self._shared.instance
         self._shared.add_sink(self._on_log_line)
         self._player = self._instance.media_player_new()
+        vlc_dir = find_vlc_dir()
+        try:
+            self._filters = FilterChain(vlc_dir) if vlc_dir is not None else None
+        except OSError as exc:  # effects and the limiter are unavailable; playback still works
+            self._filters = None
+            _log.warning("audio filter control unavailable: %s", exc)
         self._version = vlc.libvlc_get_version().decode()
         self._eq_presets = tuple(
             vlc.libvlc_audio_equalizer_get_preset_name(i).decode()
@@ -526,9 +544,6 @@ class LibVlcEngine(EngineBase):
         # Must be a per-media option: libVLC 3.0.24 silently ignores --avcodec-hw at instance level
         # (M4 finding: "Off" kept using D3D11VA until this was moved here).
         self._media.add_option(f":avcodec-hw={'any' if self._options.hardware_decoding else 'none'}")
-        effect = AUDIO_EFFECTS.get(self._options.audio_effect, "")
-        if effect:
-            self._media.add_option(f":audio-filter={effect}")
         self._player.set_media(self._media)
         self._apply_picture()
         self._apply_equalizer()
@@ -667,16 +682,22 @@ class LibVlcEngine(EngineBase):
     def _apply_equalizer(self) -> None:
         if self._player is None:
             return
-        eq = self._equalizer
-        if not eq.enabled:
+        boost = boost_db(self._level)
+        values = engine_equalizer(self._equalizer, boost)
+        if values is None:
             self._player.set_equalizer(None)
-            return
-        settings = self._vlc.AudioEqualizer()
-        settings.set_preamp(eq.preamp_db)
-        for index, value in enumerate(eq.bands_db):
-            settings.set_amp_at_index(value, index)
-        self._player.set_equalizer(settings)  # libVLC copies the values; the object can go
-        settings.release()
+        else:
+            preamp, bands = values
+            settings = self._vlc.AudioEqualizer()
+            settings.set_preamp(preamp)
+            for index, value in enumerate(bands):
+                settings.set_amp_at_index(value, index)
+            self._player.set_equalizer(settings)  # libVLC copies the values; the object can go
+            settings.release()
+        # set_equalizer replaced the filter list with "equalizer": put the effect and limiter back.
+        if self._filters is not None:
+            effect = AUDIO_EFFECTS.get(self._options.audio_effect, "")
+            self._filters.apply(self._player, filter_chain(values is not None, effect, boost > 0))
 
     def equalizer_preset(self, name: str) -> EqualizerSettings:
         if name not in self._eq_presets:
@@ -690,7 +711,8 @@ class LibVlcEngine(EngineBase):
             )
         finally:
             self._vlc.libvlc_audio_equalizer_release(handle)
-        return EqualizerSettings(True, name, round(preamp, 1), tuple(round(b, 1) for b in bands)).normalized()
+        relative = round(preamp - PREAMP_UNITY_DB, 1)  # Babarify's preamp is relative to normal level
+        return EqualizerSettings(True, name, relative, tuple(round(b, 1) for b in bands)).normalized()
 
     def _do_frame_step(self, backward: bool) -> None:
         self._player.next_frame()
@@ -700,7 +722,11 @@ class LibVlcEngine(EngineBase):
             self._notice(ErrorCode.ENGINE_FAILURE, "the snapshot could not be saved")
 
     def _do_set_volume(self, level: int) -> None:
-        self._player.audio_set_volume(level)
+        old_boost = boost_db(self._level)
+        self._level = level
+        self._player.audio_set_volume(min(level, 100))  # libVLC's own gain above 100 % clips (M2)
+        if boost_db(level) != old_boost:
+            self._apply_equalizer()
 
     def _do_set_muted(self, enabled: bool) -> None:
         self._player.audio_set_mute(enabled)

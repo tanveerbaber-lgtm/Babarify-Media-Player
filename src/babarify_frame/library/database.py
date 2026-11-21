@@ -464,6 +464,49 @@ class LibraryDatabase:
                 count += 1
         return count
 
+    def reconnect_moved(self) -> list[tuple[str, str]]:
+        """Files that were moved or renamed keep their history (M2).
+
+        A missing file and a file that appeared after it was last seen, with the same content key (size and
+        a hash of its start and end) and no other file sharing that key, are the same file in a new place.
+        Its history, favourite, hidden mark, edited details, bookmarks and playlist entries move to the new
+        path, and the old entry is removed. Returns (old path, new path) for each, e.g. to move its lyrics.
+        """
+        pairs = self._query(
+            """SELECT m.id AS old_id, m.path AS old_path, m.path_key AS old_key, n.path AS new_path,
+                      n.path_key AS new_key
+               FROM media m JOIN media n ON n.content_key = m.content_key AND n.id <> m.id
+               WHERE m.available = 0 AND n.available = 1 AND m.content_key IS NOT NULL
+                 AND n.added_at > m.scanned_at
+                 AND (SELECT COUNT(*) FROM media x WHERE x.content_key = m.content_key) = 2"""
+        )
+        moved: list[tuple[str, str]] = []
+        for pair in pairs:
+            old_key, new_key, new_path = pair["old_key"], pair["new_key"], pair["new_path"]
+            with self._transaction() as conn:
+                # Records the new path already has win; the old copies are then removed.
+                for table in ("history", "favourites", "hidden_media", "transcripts"):
+                    conn.execute(
+                        f"UPDATE OR IGNORE {table} SET path_key = ?, path = ? WHERE path_key = ?",
+                        (new_key, new_path, old_key),
+                    )
+                    conn.execute(f"DELETE FROM {table} WHERE path_key = ?", (old_key,))
+                conn.execute(
+                    "UPDATE OR IGNORE tag_edits SET path_key = ? WHERE path_key = ?", (new_key, old_key)
+                )
+                conn.execute("DELETE FROM tag_edits WHERE path_key = ?", (old_key,))
+                conn.execute(
+                    "UPDATE bookmarks SET path_key = ?, path = ? WHERE path_key = ?",
+                    (new_key, new_path, old_key),
+                )
+                for item in conn.execute("SELECT id, path FROM playlist_items").fetchall():
+                    if path_key(item[1]) == old_key:
+                        conn.execute("UPDATE playlist_items SET path = ? WHERE id = ?", (new_path, item[0]))
+                conn.execute(_APPLY_TAG_EDITS + " WHERE path_key = ?", (new_key,))
+                conn.execute("DELETE FROM media WHERE id = ?", (pair["old_id"],))
+            moved.append((pair["old_path"], new_path))
+        return moved
+
     def mark_missing(self, folder_id: int, scanned_at: float) -> int:
         """Files of a folder not seen by a completed scan become unavailable (kept, shown greyed)."""
         with self._transaction() as conn:

@@ -388,3 +388,86 @@ def test_clearing_history_keeps_bookmarks(tmp_path: Path) -> None:
     db.clear_history()
     assert db.history_count() == 0 and len(db.bookmarks_for("C:/a.mkv")) == 1
     db.close()
+
+
+# ------------------------------------------------------------ moved and renamed files (M2)
+def _song(path: Path, seed: int) -> Path:
+    return touch(path, CLIP + bytes([seed]) * 4096)
+
+
+def test_a_renamed_file_keeps_everything(db: LibraryDatabase, tmp_path: Path) -> None:
+    from babarify_frame.library import lyrics
+
+    folder = tmp_path / "Music"
+    old = _song(folder / "track 1.mp3", 1)
+    db.add_folder(str(folder))
+    scan(db, folder)
+    db.record_play(str(old), "track 1", 200_000)
+    db.save_position(str(old), "track 1", 90_000, 200_000)
+    db.set_favourite(str(old), "track 1", True)
+    db.edit_tags(str(old), "Golden Sky", "Lucas Reed", "Horizons")
+    db.add_bookmark(str(old), 30_000, "chorus")
+    playlist = db.create_playlist("Mix")
+    db.add_to_playlist(playlist.id, [str(old)])
+    lyrics_folder = tmp_path / "lyrics"
+    lyrics.save(str(old), "[00:01.00]la la", lyrics_folder)
+
+    time.sleep(0.05)  # the new name appears after the old one was last seen
+    new = old.with_name("01 Golden Sky.mp3")
+    old.rename(new)
+    summary = scan(db, folder)
+    for old_path, new_path in summary.moved:
+        lyrics.move(old_path, new_path, lyrics_folder)
+
+    assert summary.moved == ((str(old.resolve()), str(new.resolve())),)
+    entry = db.history_for(str(new))
+    assert entry is not None and entry.play_count == 1 and entry.position_ms == 90_000
+    assert db.history_for(str(old)) is None
+    assert db.is_favourite(str(new)) and not db.is_favourite(str(old))
+    assert [b.label for b in db.bookmarks_for(str(new))] == ["chorus"]
+    assert [path_key(i.path) for i in db.playlist_items(playlist.id)] == [path_key(str(new))]
+    assert lyrics.load(str(new), lyrics_folder) == "[00:01.00]la la"
+    songs = db.songs()
+    assert [(s.title, s.available) for s in songs] == [("Golden Sky", True)]  # no greyed-out old entry
+
+
+def test_a_file_moved_between_library_folders_keeps_its_history(db: LibraryDatabase, tmp_path: Path) -> None:
+    a, b = tmp_path / "A", tmp_path / "B"
+    song = _song(a / "song.mp3", 2)
+    b.mkdir()
+    db.add_folder(str(a))
+    db.add_folder(str(b))
+    scan(db, a)
+    scan(db, b)
+    db.record_play(str(song), "song", 100_000)
+    time.sleep(0.05)
+    moved = b / "song.mp3"
+    song.rename(moved)
+    scan(db, b)  # B first: the old place isn't known to be missing yet
+    assert db.history_for(str(moved)) is None
+    summary = scan(db, a)  # A's scan finds it missing and reconnects it
+    assert len(summary.moved) == 1
+    entry = db.history_for(str(moved))
+    assert entry is not None and entry.play_count == 1
+
+
+def test_copies_and_ambiguous_moves_are_left_alone(db: LibraryDatabase, tmp_path: Path) -> None:
+    folder = tmp_path / "M"
+    one = _song(folder / "one.mp3", 3)
+    twin = touch(folder / "twin.mp3", one.read_bytes())  # an identical copy from the start
+    db.add_folder(str(folder))
+    scan(db, folder)
+    db.record_play(str(one), "one", 100_000)
+    time.sleep(0.05)
+    one.unlink()  # the copy that stays is not "the same file moved"
+    assert scan(db, folder).moved == ()
+    assert db.history_for(str(twin)) is None
+
+    x = _song(folder / "x.mp3", 4)
+    y = touch(folder / "y.mp3", x.read_bytes())
+    scan(db, folder)
+    db.record_play(str(x), "x", 100_000)
+    time.sleep(0.05)
+    x.rename(folder / "x2.mp3")
+    y.rename(folder / "y2.mp3")  # two identical files moved at once: which is which can't be known
+    assert scan(db, folder).moved == ()

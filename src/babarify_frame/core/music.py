@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import math
+import os
 import random
+import re
 from enum import StrEnum
 
 AUTO_SWITCH_MS = 20_000
@@ -77,6 +79,34 @@ def index_after_end(index: int, length: int, mode: RepeatMode) -> int | None:
     if index + 1 < length:
         return index + 1
     return 0 if mode is RepeatMode.ALL else None
+
+
+def natural_key(name: str) -> list[tuple[int, int | str]]:
+    """Sort key that puts numbers in number order: "Episode 2" before "Episode 10"."""
+    return [
+        (0, int(part)) if part.isdigit() else (1, part.casefold())
+        for part in re.split(r"(\d+)", name)
+        if part
+    ]
+
+
+def next_in_folder(path: str, extensions: frozenset[str]) -> str | None:
+    """The file after ``path`` in its folder, among files with these extensions, in natural name order."""
+    folder = os.path.dirname(path)
+    try:
+        names = [
+            entry.name
+            for entry in os.scandir(folder)
+            if entry.is_file()
+            and not entry.name.startswith(".")
+            and os.path.splitext(entry.name)[1].lower() in extensions
+        ]
+    except OSError:
+        return None
+    names.sort(key=natural_key)
+    current = os.path.basename(path)
+    following = [n for n in names if natural_key(n) > natural_key(current)]
+    return os.path.join(folder, following[0]) if following else None
 
 
 def shuffled(items: list[str], index: int, rng: random.Random | None = None) -> list[str]:

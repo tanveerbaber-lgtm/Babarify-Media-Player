@@ -33,7 +33,10 @@ def build_backup(prefs: Preferences, db: LibraryDatabase) -> dict[str, Any]:
     return {
         "format": FORMAT,
         "version": VERSION,
-        "preferences": prefs.to_dict(),
+        # The saved queue is part of what was played, which a backup leaves out.
+        "preferences": {
+            k: v for k, v in prefs.to_dict().items() if k not in ("last_queue", "last_queue_index")
+        },
         "playlists": [
             {"name": playlist.name, "paths": [item.path for item in db.playlist_items(playlist.id)]}
             for playlist in db.playlists()

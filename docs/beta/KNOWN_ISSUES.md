@@ -12,13 +12,13 @@ linked issue if you have new information.
 | Playback | The time display does not move during frame stepping | It updates on play | M7 |
 | Playback | Rotation restarts playback at the same position; 4K rotation stutters | — | M7 |
 | Picture | Gamma is only available with hardware decoding switched off | Settings → Hardware decoding: Off | M7 |
-| Sound | Volume above 100 % has no limiter and can distort loud passages | Use boost only for quiet files | M7 |
+| Sound | Volume above 100 % goes up to +6 dB (twice as loud), less when the equalizer's preamp is already high; a limiter stops it clipping | — | 0.11 |
 | Subtitles | One subtitle track is shown at a time | — | M5 |
 | Previews | Some AV1 files show no preview picture for some positions; 4K previews are slow | — | M8 |
-| Library | Moving or renaming a file loses its history, bookmarks and generated subtitles | — | M6 |
-| Music | There is a short gap (about 0.4 s) between songs; playback can't run them together | Fade between songs makes the change smooth | 0.10.0 |
+| Library | A moved or renamed file keeps its history only if it is still in a library folder and no identical copy exists | Keep files inside your library folders | 0.11 |
+| Music | There is a short gap between songs (measured 110–130 ms); gapless playback isn't possible with this engine | Fade between songs makes the change smooth | 0.10.0 |
 | Music | Fade between songs fades out and in; the songs don't overlap | — | 0.10.0 |
-| Sound | The Room and Wider stereo effects are new and only lightly tested by ear | Tell us how they sound | 0.10.0 |
+| Sound | The Room effect makes music noticeably quieter (it spreads the sound out) | Raise the volume, or use Wider stereo | 0.11 |
 | Library | Edited details and covers are kept by the app, not written into the files, so other apps don't see them | — | 0.10.0 |
 | Update | Going back to 0.9.1 after 0.10.0 starts 0.9.1 with an empty library (it can't read the newer one); your data stays for the next update | Keep using 0.10.0 | 0.10.0 |
 | Accessibility | Windows contrast themes are not followed: the app keeps its own dark theme (all text at least 5.6:1 contrast, control outlines at least 3:1) | — | 0.9.0 |
