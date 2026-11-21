@@ -4,16 +4,14 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Iterator
-from dataclasses import replace
 from pathlib import Path
 
 import pytest
 from PySide6.QtCore import QPoint
-from PySide6.QtWidgets import QDialogButtonBox
 from pytestqt.qtbot import QtBot
 
 from babarify_frame.configuration.preferences import Preferences, PreferencesStore
-from babarify_frame.core.models import EngineCapabilities, MediaInfo, TrackInfo, TrackKind
+from babarify_frame.core.models import MediaInfo, TrackInfo, TrackKind
 from babarify_frame.core.models import PlaybackState as S
 from babarify_frame.playback.adapters.mock import MockEngine
 from babarify_frame.playback.factory import EngineDescriptor, EngineFactory, EngineProbe
@@ -44,11 +42,6 @@ class FakePreview(FramePreview):
 
     def close(self) -> None:
         self.closed.set()
-
-
-class NoNetworkEngine(MockEngine):
-    def get_capabilities(self) -> EngineCapabilities:
-        return replace(super().get_capabilities(), network_schemes=frozenset())
 
 
 def make_window(
@@ -93,51 +86,6 @@ def play(qtbot: QtBot, window: MainWindow, uri: str = FILM) -> MockEngine:
 
 
 # ------------------------------------------------------------ network streams
-def test_stream_dialog_checks_the_address_while_typing(qtbot: QtBot, window: MainWindow) -> None:
-    dialog = window.choose_stream()
-    assert dialog is not None
-    open_button = dialog.buttons.button(QDialogButtonBox.StandardButton.Open)
-    assert not open_button.isEnabled()
-    for bad, reason in (
-        ("file:///C:/Windows/win.ini", "'file' addresses are not supported"),
-        ("http://user:pw@example.com/a.mp4", "Remove the user name and password"),
-        ("vlc://quit", "'vlc' addresses"),
-    ):
-        dialog.address.setText(bad)
-        assert not open_button.isEnabled() and reason in dialog.reason.text()
-    dialog.address.setText("https://example.com/live/index.m3u8?token=abc")
-    assert open_button.isEnabled() and dialog.url == "https://example.com/live/index.m3u8?token=abc"
-    dialog.accept()
-    qtbot.waitUntil(lambda: window.player.state is S.PLAYING, timeout=3000)
-    # The title shows the host and file name, never the query string.
-    assert "index.m3u8 (example.com)" in window.windowTitle() and "token" not in window.windowTitle()
-    assert not window.player.is_seekable  # a live stream (no duration)
-
-
-def test_stream_failure_is_explained(qtbot: QtBot, window: MainWindow) -> None:
-    window.open_path("https://fail.invalid/a.mp4")
-    qtbot.waitUntil(lambda: window.player.state is S.ERROR, timeout=3000)
-    title, body = window.player.message
-    assert "stream could not be played" in title and "fail.invalid" in body
-
-
-def test_engine_without_network_support_explains_it(qtbot: QtBot, tmp_path: Path) -> None:
-    win = make_window(qtbot, tmp_path, NoNetworkEngine)
-    dialog = win.choose_stream()
-    assert dialog is not None and not dialog.address.isEnabled()
-    assert "cannot play network streams" in dialog.reason.text()
-    win.close()
-
-
-def test_recent_streams_come_from_history(qtbot: QtBot, window: MainWindow) -> None:
-    play(qtbot, window, "https://example.com/show.mp4?duration=120000")
-    play(qtbot, window, FILM)
-    dialog = window.choose_stream()
-    assert dialog is not None and dialog.recent.count() == 1
-    assert dialog.recent.item(0).text() == "show.mp4 (example.com)"
-
-
-# ------------------------------------------------------------ chapters
 def test_chapter_navigation_and_marks(qtbot: QtBot, window: MainWindow) -> None:
     engine = play(qtbot, window)
     p = window.player
@@ -195,7 +143,7 @@ def test_bookmarks_add_jump_rename_delete(qtbot: QtBot, window: MainWindow) -> N
 
 
 def test_bookmarks_need_a_seekable_file(qtbot: QtBot, window: MainWindow) -> None:
-    play(qtbot, window, "https://example.com/live")  # live: no duration
+    play(qtbot, window, "mock://live?duration=0")  # live: no duration
     assert not window.add_bookmark_action.isEnabled()
     assert window.player.add_bookmark() is None
 
@@ -242,13 +190,6 @@ def test_untrusted_tags_are_escaped_and_shortened(tmp_path: Path) -> None:
     assert max(len(line) for line in text.splitlines()) < 320
 
 
-def test_stream_information_hides_the_query(tmp_path: Path) -> None:
-    sections = media_sections(MediaInfo(uri="x"), "https://cdn.example.com/a/live.m3u8?token=SECRET")
-    text = sections_text(sections)
-    assert "SECRET" not in text and "Address: https://cdn.example.com/a/live.m3u8" in text
-    assert "Duration: live / unknown" in text
-
-
 # ------------------------------------------------------------ seek previews
 def test_hovering_the_seek_bar_shows_time_chapter_and_picture(qtbot: QtBot, tmp_path: Path) -> None:
     preview = FakePreview()
@@ -273,14 +214,12 @@ def test_hovering_the_seek_bar_shows_time_chapter_and_picture(qtbot: QtBot, tmp_
     assert preview.closed.wait(5)
 
 
-def test_no_preview_source_for_streams_or_when_switched_off(qtbot: QtBot, tmp_path: Path) -> None:
+def test_no_preview_source_when_switched_off(qtbot: QtBot, tmp_path: Path) -> None:
     preview = FakePreview()
     win = make_window(qtbot, tmp_path, preview=preview, prefs=Preferences(seek_previews=False))
     media = tmp_path / "film.mp4"
     media.write_bytes(b"\x00")
     win.open_path(str(media))
-    qtbot.waitUntil(lambda: win.player.state is S.PLAYING, timeout=3000)
-    win.open_path("https://example.com/show.mp4?duration=120000")
     qtbot.waitUntil(lambda: win.player.state is S.PLAYING, timeout=3000)
     seek = win.player.controls.seek
     seek.hovered.emit(5000, seek.mapToGlobal(QPoint(10, 0)))
@@ -296,10 +235,10 @@ def test_untrusted_names_and_errors_are_shown_as_plain_text(qtbot: QtBot, window
 
     from babarify_frame.core.errors import ErrorCode
 
-    engine = play(qtbot, window, "https://example.com/%3Cimg%20src%3Dx%3E.mp4?duration=60000")
+    engine = play(qtbot, window, "mock://<img src=x>.mp4?duration=60000")
     title = window.player.controls.title_label
     assert title.textFormat() is Qt.TextFormat.PlainText and "<img src=x>.mp4" in title.toolTip()
-    engine.simulate_error(ErrorCode.NETWORK_ERROR, '<img src="file:///C:/x.png"><b>Click here</b>')
+    engine.simulate_error(ErrorCode.MEDIA_OPEN_FAILED, '<img src="file:///C:/x.png"><b>Click here</b>')
     qtbot.waitUntil(lambda: window.player.state is S.ERROR, timeout=3000)
     body = window.player._message_body
     assert body.textFormat() is Qt.TextFormat.PlainText and "<b>Click here</b>" in body.text()

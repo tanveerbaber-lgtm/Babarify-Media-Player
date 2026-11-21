@@ -10,37 +10,27 @@ the developer or anyone else.
 |---|---|---|---|
 | Settings | `%APPDATA%\Babarify\Frame\settings.json` | Your choices (volume, subtitles, picture…) | *Settings → Reset to defaults*, or delete the file |
 | Library, songs' tags and pictures, history and play counts, bookmarks, playlists, favourites | `%APPDATA%\Babarify\Frame\library.db` and `thumbnails\` | Library page, *Continue watching*, resume, bookmarks, automatic playlists | *Settings → Privacy → Clear history*; remove folders and entries in the Library; history can be switched off |
-| Generated subtitles and their search index | `%APPDATA%\Babarify\Frame\subtitles\` and the library database | Only if you use the optional AI features | *Settings → AI features → Delete all generated subtitles* |
-| Speech models | `%LOCALAPPDATA%\Babarify\Frame\models\` | Only if you download one | *Settings → AI features → Delete model* |
+| Machine-generated subtitles left by 0.9–0.10 (AI feature, removed in 0.11) | `%APPDATA%\Babarify\Frame\subtitles\` and the library database | Only if you used them then | *Settings → Privacy → Delete old AI data* |
+| Speech models left by 0.9–0.10 | `%LOCALAPPDATA%\Babarify\Frame\models\` | Only if you downloaded one then | *Settings → Privacy → Delete old AI data* |
 | Logs and crash records | `%LOCALAPPDATA%\Babarify\Frame\logs\` | To help you (or someone you choose to share them with) understand a problem | Delete the folder at any time; old entries are trimmed automatically |
 | Snapshots | `Pictures\Babarify Media Player` | Pictures you take with Shift+S | Delete them like any picture |
 
-Logs can contain the names and folders of files you played and the addresses of streams you
-opened. They are never uploaded; you decide whether to share them.
+Logs can contain the names and folders of files you played. They are never uploaded; you decide whether to share them.
 
 When you uninstall, you can choose to delete all of the above (except snapshots, which are your
 pictures). Your media files are never changed by Babarify Media Player. One is deleted only when you choose
 *Delete from disk* for it and confirm, and then it goes to the Recycle Bin. Edited song details, covers,
 lyrics and a background picture are kept by the app, not written into your files.
 
-## When Babarify Media Player uses the network
+## Network use
 
-Only when you ask it to:
+None. Since 0.11 Babarify Media Player is a local player: it plays files on this PC and makes no network
+connections of its own. There are no network streams, no downloads and no automatic update check. To update,
+download a newer installer yourself. (*Help → Report a problem* can open the project's issue page in your
+browser when you click it; the report itself is text you copy, and nothing is sent by the app.)
 
-1. **Network streams** you open (File → Open network stream, or a link you drop). The server
-   you choose sees a normal request from "BabarifyMediaPlayer", like any player. Babarify fetches
-   web streams itself and never follows a redirect or playlist entry to a local file or
-   another program.
-2. **Downloading a speech model** (Settings → AI features), after you confirm. The model comes
-   from huggingface.co. Only the model files are requested, with telemetry switched off;
-   nothing about you or your media is sent.
-
-There is no automatic update check. To update, download a newer installer yourself.
-
-## Optional AI features
-
-They are off until you switch them on, and they run entirely on this PC. Video, sound and
-subtitles are never uploaded. Generated subtitles are marked *machine-generated*.
+Versions 0.9 and 0.10 could play network streams and download a speech model for optional AI subtitles. If
+you used them, *Settings → Privacy → Delete old AI data* removes what they left.
 
 ## Contact
 

@@ -28,5 +28,6 @@ def test_the_android_version_has_a_changelog_entry() -> None:
 def test_runtime_pins_match_the_windows_version_and_are_exact() -> None:
     lines = (ROOT / "requirements" / "windows-runtime.txt").read_text("utf-8").splitlines()
     assert lines[0] == f"# Babarify Media Player {_windows_version()} for Windows"
-    assert len(lines) > 10
+    names = {line.split("==")[0].lower() for line in lines[1:]}
+    assert {"pyside6_essentials", "shiboken6", "python-vlc"} <= names  # never an empty or partial list
     assert all(re.fullmatch(r"[A-Za-z0-9._-]+==[^=\s]+", line) for line in lines[1:])

@@ -9,10 +9,11 @@
 > [the plan](Babarify_Vision_Official_Architecture_and_Milestones.md) and the milestone
 > reports for [M1](docs/milestones/M1/), [M2](docs/milestones/M2/) and [M3](docs/milestones/M3/).
 
-- No ads, no account, no telemetry by default.
+- A local player: it opens files on this PC and needs no internet connection. No ads, no account, no
+  telemetry.
 - First platform: Windows 10/11 64-bit. An Android version (10 or later) is built in `android/player` but not yet released. iOS comes after a dedicated feasibility milestone.
-- Playback engine: **libVLC** (provisional, [ADR-0001](docs/decisions/ADR-0001-playback-engine.md));
-  mpv is kept as a maintained alternative.
+- Playback engine: **libVLC** ([ADR-0001](docs/decisions/ADR-0001-playback-engine.md)). The mpv prototype
+  was removed in 0.11.
 
 ## Development setup (Windows)
 
@@ -26,20 +27,19 @@ py -3.13 -m venv .venv
 
 ### Engine libraries (development only)
 
-The engines are native libraries and are not installed by pip. Put 64-bit builds in
-the git-ignored `.engines/` folder (or point `BABARIFY_VLC_DIR` / `BABARIFY_MPV_DIR` at them):
+libVLC is a native library and is not installed by pip. Put a 64-bit build in the git-ignored
+`.engines/` folder (or point `BABARIFY_VLC_DIR` at it):
 
 | Engine | Source used in M1 | Expected layout |
 |---|---|---|
 | libVLC 3.0.24 x64 | `vlc-3.0.24-win64.zip` from download.videolan.org (SHA-256 verified) | `.engines/vlc/vlc-3.0.24/libvlc.dll` + `plugins/` |
-| libmpv | `mpv-dev-x86_64-20261021-git-e471496c56.7z` from shinchiro/mpv-winbuild-cmake (linked from mpv.io; GitHub digest verified) | `.engines/mpv/libmpv-2.dll` |
 
 A 32-bit VLC installation cannot be used from 64-bit Python.
 
 ## Run
 
 ```powershell
-.\.venv\Scripts\python.exe -m babarify_frame [FILE] [--engine libvlc|mpv]
+.\.venv\Scripts\python.exe -m babarify_frame [FILE]
 ```
 
 Open files with **Ctrl+O**, by dragging them onto the window, or as a command-line argument.
@@ -48,12 +48,8 @@ folders you choose are scanned, in the background, and files are never modified.
 when you choose to and confirm.
 Files continue where you stopped; *Home* lists *Continue watching* and *Recently played*.
 History stays on this PC and can be turned off or cleared in *Settings → Privacy*.
-Network streams (http, https, HLS, internet radio, rtsp) open with **Ctrl+N** or by dropping a
-link; Babarify fetches web streams itself and never follows a redirect or playlist entry to a
-local file or another program. Point at the seek bar for a preview picture (local videos).
-Optional local AI (*Settings → AI features*, off by default): generate subtitles from speech and
-search what is said. It runs on this PC only; nothing is uploaded. Install with
-`pip install -e .[ai]`; the speech model (75–148 MB) is downloaded in the app after you confirm.
+Point at the seek bar for a preview picture. Network streams, internet radio and the optional
+AI subtitles of earlier versions were removed in 0.11: the player is local only.
 
 | Key | Action |
 |---|---|
@@ -65,12 +61,9 @@ search what is said. It runs on this PC only; nothing is uploaded. Install with
 | F, F11, double-click video | Fullscreen (Esc to leave) |
 | Ctrl+1 / 2 / 3 | Home / Now Playing / Settings |
 | Ctrl+O / Ctrl+Q | Open / exit |
-| Ctrl+N | Open a network stream |
 | Ctrl+→ / Ctrl+← | Next / previous chapter (also *Playback → Chapters*) |
 | Ctrl+B / Ctrl+Shift+B | Add a bookmark / list bookmarks |
 | Ctrl+Shift+I | Media information (tracks, tags, chapters) |
-| Ctrl+Shift+G | Generate subtitles from speech (local AI, when turned on) |
-| Ctrl+Shift+F | Search spoken words in generated subtitles |
 | Ctrl+I | Playback info (decoder, frames, engine log) |
 | Ctrl+L | Library |
 | N / P | Next / previous in playlist |
@@ -103,8 +96,7 @@ Automatic/Off, fullscreen behaviour, subtitle look and preferred languages) are 
 ```
 
 Integration tests skip automatically when an engine library or the generated media is
-missing (generate it with `tools\engine-benchmark\make_media.py`). mpv tests are opt-in:
-set `BABARIFY_TEST_MPV=1` (see M1 finding S1). Resource stress tests run separately:
+missing (generate it with `tools\engine-benchmark\make_media.py`). Resource stress tests run separately:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -m stress -s
@@ -128,7 +120,7 @@ See [tools/engine-benchmark/README.md](tools/engine-benchmark/README.md).
 src/babarify_frame/
   core/        typed models, errors, events (no engine or UI imports)
   playback/    contract, lifecycle rules, factory, controller
-    adapters/  mock, libvlc (prototype), mpv (prototype) — the only place engine bindings are imported
+    adapters/  mock, libvlc — the only place the engine binding is imported
   configuration/ typed preferences + local JSON store
   ui/          PySide6 shell (main_window), pages (home, player, settings), controls, theme tokens
 tests/         unit, integration, ui, stress

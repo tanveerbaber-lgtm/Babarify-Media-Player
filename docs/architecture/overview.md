@@ -15,8 +15,8 @@ playback/contracts.py          the common playback contract (PlaybackEngine) + E
 playback/lifecycle.py          allowed state transitions and per-command states
 playback/factory.py            engine registry with lazy imports and probes
   │
-playback/adapters/             mock · libvlc (prototype) · mpv (prototype)
-  │                            ONLY this package imports vlc / mpv bindings
+playback/adapters/             mock · libvlc
+  │                            ONLY this package imports the vlc binding
 core/                          immutable models, error codes, events (no Qt, no engine imports)
 ```
 
@@ -217,34 +217,13 @@ Therefore:
   opt-in and never remembered.
 - `ui/enhancements.py`: the Picture & Sound panel (Ctrl+E), built from capabilities.
 
-## Network streams (M8)
+## Network streams (M8, removed in 0.11)
 
-Every address (typed, dropped, from history or inside a playlist) is untrusted.
-
-- `core/network.py` `validate_stream_url`: only http, https and rtsp; a host is required;
-  user names/passwords, whitespace and control characters are refused; at most 2,048
-  characters; the fragment is dropped. `normalize_local_uri` applies it to every network
-  URI, limited to the engine's `allowed_schemes` (`EngineCapabilities.network_schemes`
-  tells the UI; mpv has none yet).
-- libVLC 3 follows HTTP redirects to *any* scheme it has a plugin for (measured: a redirect
-  to `file:///…` played the local file) and HLS manifests may name `file:` segments. So
-  libVLC never fetches a web address: `playback/stream_proxy.py` runs a loopback HTTP server
-  (127.0.0.1, random port, random per-process path token) that fetches upstream itself
-  (system certificate store, connect 10 s / read 20 s), follows at most 5 redirects and
-  only to validated http/https addresses, rewrites every `#EXTM3U` playlist entry and
-  `URI="…"` attribute to go through it again (other schemes are removed and counted),
-  refuses DASH/Smooth manifests (415) and playlists over 4 MB, and records a reason for
-  every refusal. libVLC runs with `--no-lua`, so Lua playlist/meta scripts cannot fetch
-  pages around the proxy. RTSP goes to libVLC (live555) directly.
-- Remote M3U/PLS/XSPF lists end at once in libVLC with their entries as sub-items; the
-  adapter plays the first entry that passes `validate_stream_url` (through the proxy),
-  skips the rest with a `Notice`, and stops at 3 levels of nesting.
-- A server that accepts the connection and never answers leaves libVLC "opening" forever:
-  the adapter gives up after `OPEN_TIMEOUT_S` (30 s). Failures are `NETWORK_ERROR` with the
-  proxy's reason ("the server answered 404 …", "redirected to a non-web address (file:)").
-- UI: *File → Open network stream* (Ctrl+N) checks the address while typing and lists recent
-  streams from history; links dropped from a browser open the same way. Titles, history
-  names and the media panel show host and file name, never the query string.
+The player is local only. `normalize_local_uri` (`playback/contracts.py`) refuses network addresses
+(`NETWORK_SCHEMES`) before they reach an engine; the stream proxy, the Open network stream dialog and
+dropped links were removed, and the release leaves out libVLC's http, https and live555 (RTSP) plugins.
+History rows for addresses played by earlier versions stay in the database and are never listed
+(`library/database.py`, `NETWORK_PREFIXES`).
 
 ## Chapters, bookmarks, media information and previews (M8)
 
@@ -265,43 +244,21 @@ Every address (typed, dropped, from history or inside a playlist) is untrusted.
 - `ui/media_info.py` (Ctrl+Shift+I): general facts, tags, every track and the chapters;
   values are HTML-escaped and shortened, and can be copied as text.
 
-## Local AI: generated subtitles and spoken-word search (M9)
+## Local AI (M9, removed in 0.11)
 
-Off until *Settings → AI features* is switched on; local only (owner decision).
-
-- `ai/models.py`: the speech models (faster-whisper conversions of Whisper, MIT), each pinned
-  to a Hugging Face revision with the size and SHA-256 of every file. Models live in
-  `%LOCALAPPDATA%\Babarify\Frame\models` (`BABARIFY_MODELS_DIR`). A model is downloaded only
-  after the user confirms a dialog naming its size, source, revision and licence; files go to a
-  staging folder and are installed only if every checksum matches.
-- `ai/worker.py` runs as its own process (`python -m babarify_frame.ai.worker`) at
-  below-normal priority with half the cores, so the speech engine (CTranslate2, onnxruntime)
-  can neither crash nor slow playback; Cancel ends the process. It decodes the audio with
-  libVLC (transcode to 16 kHz mono WAV: no second media parser, about 200× real time), runs
-  faster-whisper offline (`HF_HUB_OFFLINE`) with the voice-activity filter and word timings,
-  and reports JSON lines (stage, progress, language, done/error). PyAV, which faster-whisper
-  would use for decoding, is never called (its current version is incompatible anyway).
-- `ai/subtitles.py`: cues rebuilt from word timings (sentence ends, ≤ 84 characters, ≤ 7 s,
-  pauses over 0.7 s, two lines, no overlap), SRT output, file names
-  `<name>.<language>.machine-generated.srt` in `<config>\subtitles\<hash of path_key>\`,
-  never next to the media.
-- Library schema v4: `transcripts` (one per file) and the FTS5 table `transcript_cues`.
-  `search_spoken` reduces the query to quoted words (prefix match on the last), so FTS syntax
-  typed by the user has no effect. *Delete all generated subtitles* removes files and index.
-- UI (`ui/ai.py`): *Audio & Subtitles → Generate subtitles (local AI)* (Ctrl+Shift+G) with
-  language (or automatic detection), model, time estimate, progress and Stop; the result is
-  added to the subtitle tracks. *View → Search spoken words* (Ctrl+Shift+F) opens a result
-  1 s before the words. Switching AI off hides both and stops a running job.
+The optional speech-to-subtitle feature and spoken-word search were removed with their worker process and
+dependencies (about 255 MB of the install). The `transcripts` tables stay for database compatibility.
+`library/legacy_ai.py` measures and, on request (*Settings → Privacy → Delete old AI data*), deletes the
+models and generated subtitles that 0.9 and 0.10 left in Babarify's own folders.
 
 ## Packaging and release (M10)
 
 - Release layout (per-user install, `%LOCALAPPDATA%\Programs\Babarify Media Player`):
   `Babarify Media Player.exe` and `_internal\` (PyInstaller; Python, Qt/PySide6 as separate DLLs),
-  `engines\vlc\` (curated libVLC: 259 of 360 plugins, `tools/vlc_plugins.py`), and the optional
-  `ai\babarify-ai-worker.exe` (+ its own `_internal`), plus licence, notices and privacy texts.
+  `engines\vlc\` (curated libVLC, `tools/vlc_plugins.py`: local playback only, no network, stream-output
+  or muxer plugins), plus licence, notices and privacy texts. (0.9-0.10 also had an optional `ai\` folder.)
 - A frozen app loads libVLC only from its own `engines` folder (`_engine_paths.bundled_dir`):
-  `BABARIFY_VLC_DIR` is ignored, and mpv is never loaded. The worker finds the engine one level
-  up.
+  `BABARIFY_VLC_DIR` is ignored.
 - `app_log.py`: local `app.log` (rotating) and `crash.log` (`faulthandler` and unhandled
   Python errors) in `%LOCALAPPDATA%\Babarify\Frame\logs`; nothing is uploaded. Engine
   start-up time and failures are logged.
@@ -317,8 +274,8 @@ actually in use is reported per media via `diagnostics()["hwdec"]`, never assume
 
 ## Engine discovery (development)
 
-Adapters look for engines in `BABARIFY_VLC_DIR` / `BABARIFY_MPV_DIR`, then in the
-git-ignored `.engines/` folder. Packaging (M10) will bundle the selected engine.
+The libVLC adapter looks in `BABARIFY_VLC_DIR`, then in the git-ignored `.engines/` folder. Releases
+bundle the curated engine (M10).
 
 ## Deviations from the proposed repository layout
 

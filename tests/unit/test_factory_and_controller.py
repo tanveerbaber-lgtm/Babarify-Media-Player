@@ -17,7 +17,7 @@ def mock_factory() -> EngineFactory:
 
 
 def test_default_factory_registers_candidates() -> None:
-    assert default_factory().names() == ["mock", "libvlc", "mpv"]
+    assert default_factory().names() == ["mock", "libvlc"]
 
 
 def test_unknown_engine() -> None:

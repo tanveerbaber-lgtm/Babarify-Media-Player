@@ -15,7 +15,6 @@ from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QDialog, QDialogButtonBox, QPushButton, QTextBrowser, QVBoxLayout, QWidget
 
 from babarify_frame.core.models import MediaInfo, TrackInfo, TrackKind
-from babarify_frame.core.network import is_network_uri, stream_display_name
 from babarify_frame.ui import theme
 from babarify_frame.ui.widgets import format_time
 
@@ -66,9 +65,7 @@ def _track_rows(track: TrackInfo) -> tuple[tuple[str, str], ...]:
 
 def media_sections(info: MediaInfo | None, uri: str) -> list[Section]:
     general: list[tuple[str, str]] = []
-    if is_network_uri(uri):
-        general += [("Stream", stream_display_name(uri)), ("Address", uri.split("?", 1)[0])]
-    elif uri:
+    if uri:
         general += [("File", Path(uri).name), ("Folder", str(Path(uri).parent))]
         try:
             size = os.path.getsize(uri)

@@ -18,7 +18,7 @@ from pathlib import Path
 
 from packaging.requirements import Requirement
 
-RUNTIME_ROOTS = ("PySide6-Essentials", "python-vlc", "huggingface-hub", "faster-whisper")
+RUNTIME_ROOTS = ("PySide6-Essentials", "python-vlc")
 # Build and development tools are never bundled even if a root depends on them.
 NOT_BUNDLED = {"pip", "setuptools", "wheel", "pyinstaller", "pyinstaller-hooks-contrib", "altgraph", "pefile"}
 VLC_SOURCE = "https://download.videolan.org/pub/videolan/vlc/3.0.24/vlc-3.0.24.tar.xz"
@@ -136,9 +136,6 @@ def write(release: Path, vlc_dir: Path, version: str) -> list[dict[str, str]]:
         if row["source"]:
             lines.append(f"{'':57}source: {row['source']}")
     lines += [
-        "",
-        "Speech models (downloaded only if you choose to, M9): OpenAI Whisper weights converted by",
-        "Systran (faster-whisper-tiny, faster-whisper-base), MIT licence, from huggingface.co.",
         "",
         f"libVLC plugins shipped ({len(shipped)} of {len(plugins)}; the licence each plugin declares for",
         "its own code; libraries linked into plugins are listed in licenses\\libvlc\\COPYING.txt):",

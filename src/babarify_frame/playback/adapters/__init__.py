@@ -1,1 +1,1 @@
-"""Engine adapters. Only this package may import engine bindings (vlc, mpv)."""
+"""Engine adapters. Only this package may import the engine binding (vlc)."""

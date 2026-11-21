@@ -1,8 +1,8 @@
 """Locate native engine libraries for development builds.
 
 Search order for each engine:
-1. Environment variable (``BABARIFY_VLC_DIR`` / ``BABARIFY_MPV_DIR``).
-2. ``<repo>/.engines/vlc/vlc-*/`` and ``<repo>/.engines/mpv/`` (see README).
+1. Environment variable ``BABARIFY_VLC_DIR``.
+2. ``<repo>/.engines/vlc/vlc-*/`` (see README).
 
 Packaged releases (M10, ``sys.frozen``) use only ``engines/vlc`` next to the executable: the
 environment override is ignored there, so a variable cannot make a release load other DLLs.
@@ -39,14 +39,6 @@ def find_vlc_dir() -> Path | None:
     env = os.environ.get("BABARIFY_VLC_DIR")
     candidates = [Path(env)] if env else sorted((_ENGINES / "vlc").glob("vlc-*"), reverse=True)
     return next((c for c in candidates if (c / "libvlc.dll").is_file()), None)
-
-
-def find_mpv_dir() -> Path | None:
-    if bundled_dir() is not None:
-        return None  # releases ship libVLC only (mpv is the opt-in development engine)
-    env = os.environ.get("BABARIFY_MPV_DIR")
-    candidates = [Path(env)] if env else [_ENGINES / "mpv"]
-    return next((c for c in candidates if (c / "libmpv-2.dll").is_file()), None)
 
 
 def add_dll_dir(path: Path) -> None:

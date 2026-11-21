@@ -138,7 +138,7 @@ def main() -> int:
     factory = EngineFactory()
     factory.register(EngineDescriptor("mock", "Mock", MockEngine, lambda: EngineProbe("mock", True, "1")))
     store = PreferencesStore(config / "settings.json")
-    store.save(Preferences(ai_enabled=True))
+    store.save(Preferences())
     window = MainWindow(factory, load_icon(), engine_name="mock", store=store)
     window.resize(1180, 740)
     window.show()
@@ -163,9 +163,6 @@ def main() -> int:
         ("Playback info", window.show_playback_info()),
         ("Media information", window.show_media_info()),
         ("Bookmarks", window.show_bookmarks()),
-        ("Open network stream", window.choose_stream()),
-        ("Generate subtitles", window.show_generate_subtitles()),
-        ("Search spoken words", window.show_spoken_search()),
     ]
     enhancements = window.show_enhancements()
     for name, dialog in dialogs:

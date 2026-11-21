@@ -85,21 +85,8 @@ def _probe_libvlc() -> EngineProbe:
     return probe()
 
 
-def _create_mpv(options: EngineOptions) -> PlaybackEngine:
-    from babarify_frame.playback.adapters.mpv import MpvEngine
-
-    return MpvEngine(options)
-
-
-def _probe_mpv() -> EngineProbe:
-    from babarify_frame.playback.adapters.mpv import probe
-
-    return probe()
-
-
 def default_factory() -> EngineFactory:
     factory = EngineFactory()
     factory.register(EngineDescriptor("mock", "Mock (tests)", _create_mock, _probe_mock))
     factory.register(EngineDescriptor("libvlc", "libVLC (candidate)", _create_libvlc, _probe_libvlc))
-    factory.register(EngineDescriptor("mpv", "mpv (candidate)", _create_mpv, _probe_mpv))
     return factory

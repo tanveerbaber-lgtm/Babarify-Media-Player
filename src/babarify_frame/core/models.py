@@ -117,7 +117,6 @@ class EngineCapabilities:
     supports_frame_back_step: bool = False
     supports_snapshot: bool = False
     # Advanced media (M8)
-    network_schemes: frozenset[str] = frozenset()  # subset of core.network.STREAM_SCHEMES
     supports_chapters: bool = False  # MediaInfo.chapters is filled when the file has chapters
     notes: tuple[str, ...] = field(default=())
 
