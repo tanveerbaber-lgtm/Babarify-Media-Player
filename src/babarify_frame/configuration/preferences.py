@@ -34,6 +34,7 @@ log = logging.getLogger(__name__)
 
 SCHEMA_VERSION = 1
 SEEK_STEPS_S = (5, 10, 15, 30, 60)
+MAX_SAVED_QUEUE = 2000  # files of the queue remembered when the app closes
 PLAYBACK_RATES = (0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0)
 LIBRARY_SORTS = ("name", "date_added", "recently_played", "duration", "size")
 # Track languages offered in Settings: ISO 639-2 codes as engines report them. "" = no preference.
@@ -105,6 +106,7 @@ class Preferences:
     audio_effect: str = "none"  # a key of AUDIO_EFFECTS
     controls_hide_delay_ms: int = 3000  # fullscreen auto-hide, 1000..10000 (whole seconds in the UI)
     start_fullscreen: bool = False
+    autoplay_next_video: bool = False  # when a video ends with no queue, play the next one in its folder
     hardware_decoding: bool = True  # Automatic: use the GPU when the engine confirms support
     # Audio and subtitles (M5)
     subtitles_auto: bool = False  # select a subtitle track when a file opens without one
@@ -128,6 +130,9 @@ class Preferences:
     colour_theme: str = DEFAULT_THEME  # a THEMES key
     background_picture: str = ""  # a picture of the person's own, behind the main pages
     show_status_bar: bool = False  # the line of technical details along the bottom of the window
+    # The queue when the app last closed (M2), kept only while history is remembered. Never in a backup.
+    last_queue: tuple[str, ...] = ()
+    last_queue_index: int = -1
     window: WindowGeometry | None = field(default=None)
 
     @classmethod
@@ -171,8 +176,12 @@ class Preferences:
             )
             if p is not None
         )
+        raw_queue = data.get("last_queue")
         return replace(
             prefs,
+            last_queue=tuple(
+                p for p in (raw_queue if isinstance(raw_queue, list) else []) if isinstance(p, str)
+            ),
             window=_geometry(data.get("window")),
             subtitle_style=style,
             picture=PictureSettings.from_dict(data.get("picture")),
@@ -198,6 +207,10 @@ class Preferences:
             equalizer=self.equalizer.normalized(),
             profiles=_unique_profiles(self.profiles),
             subtitle_style=self.subtitle_style.normalized(),
+            last_queue=self.last_queue[:MAX_SAVED_QUEUE],
+            last_queue_index=self.last_queue_index
+            if 0 <= self.last_queue_index < len(self.last_queue)
+            else -1,
         )
 
     def to_dict(self) -> dict[str, Any]:

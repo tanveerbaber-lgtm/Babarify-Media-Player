@@ -206,8 +206,18 @@ class SettingsPage(QWidget):
         self.hide_delay.setSuffix(" s")
         self.hide_delay.setAccessibleName("Hide controls after")
         self.start_fullscreen = QCheckBox("Switch to fullscreen when a video starts")
+        self.autoplay_next_video = QCheckBox("When a video ends, play the next video in its folder")
+        self.autoplay_next_video.setToolTip(
+            "In name order, so Episode 2 comes before Episode 10. "
+            "Not used while a playlist or queue is playing."
+        )
         fullscreen = self._card(
-            "Fullscreen", [("Hide controls after", self.hide_delay), ("", self.start_fullscreen)]
+            "Fullscreen",
+            [
+                ("Hide controls after", self.hide_delay),
+                ("", self.start_fullscreen),
+                ("", self.autoplay_next_video),
+            ],
         )
 
         self.subtitles_auto = QCheckBox("Show subtitles automatically when a file has them")
@@ -341,6 +351,7 @@ class SettingsPage(QWidget):
         self.show_status_bar.toggled.connect(self._changed)
         self.hide_delay.valueChanged.connect(self._changed)
         self.start_fullscreen.toggled.connect(self._changed)
+        self.autoplay_next_video.toggled.connect(self._changed)
         self.subtitles_auto.toggled.connect(self._changed)
         self.remember_history.toggled.connect(self._changed)
         self.resume_playback.toggled.connect(self._changed)
@@ -411,6 +422,7 @@ class SettingsPage(QWidget):
         self.show_status_bar.setChecked(prefs.show_status_bar)
         self.hide_delay.setValue(round(prefs.controls_hide_delay_ms / 1000))
         self.start_fullscreen.setChecked(prefs.start_fullscreen)
+        self.autoplay_next_video.setChecked(prefs.autoplay_next_video)
         self.subtitles_auto.setChecked(prefs.subtitles_auto)
         self.remember_history.setChecked(prefs.remember_history)
         self.resume_playback.setChecked(prefs.resume_playback)
@@ -459,6 +471,7 @@ class SettingsPage(QWidget):
             show_status_bar=self.show_status_bar.isChecked(),
             controls_hide_delay_ms=self.hide_delay.value() * 1000,
             start_fullscreen=self.start_fullscreen.isChecked(),
+            autoplay_next_video=self.autoplay_next_video.isChecked(),
             subtitles_auto=self.subtitles_auto.isChecked(),
             remember_history=self.remember_history.isChecked(),
             resume_playback=self.resume_playback.isChecked(),

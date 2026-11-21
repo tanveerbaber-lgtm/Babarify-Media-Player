@@ -18,6 +18,10 @@ ASPECT_RATIOS: tuple[str, ...] = ("", "16:9", "4:3", "16:10", "21:9", "2.35:1", 
 ZOOM_LEVELS: tuple[float, ...] = (0.0, 0.5, 1.0, 2.0)
 EQ_BAND_MIN_DB, EQ_BAND_MAX_DB = -20.0, 20.0
 EQ_BAND_COUNT = 10
+# libVLC's equalizer attenuates by 12 dB: a preamp of 12 dB leaves the level unchanged (measured in M2 with
+# tools/clipping_check.py). Babarify shows and stores the preamp relative to that, so 0 dB means no change.
+PREAMP_UNITY_DB = 12.0
+PREAMP_MIN_DB, PREAMP_MAX_DB = -20.0, EQ_BAND_MAX_DB - PREAMP_UNITY_DB
 BASS_MAX_DB = 12.0
 BASS_WEIGHTS = (1.0, 0.8, 0.5, 0.2)  # from the lowest band up
 MAX_PROFILES = 20
@@ -96,7 +100,7 @@ class PictureSettings:
 class EqualizerSettings:
     enabled: bool = False
     preset: str = ""  # name of the engine preset the values came from, "" = custom
-    preamp_db: float = 0.0
+    preamp_db: float = 0.0  # relative to normal level (0 = unchanged), not libVLC's own scale
     bands_db: tuple[float, ...] = field(default=(0.0,) * EQ_BAND_COUNT)
     bass_pct: int = 0  # where the bass dial stands; its effect is already in bands_db
 
@@ -105,7 +109,7 @@ class EqualizerSettings:
         return replace(
             self,
             preset=self.preset[:60],
-            preamp_db=_number(self.preamp_db, 0.0, EQ_BAND_MIN_DB, EQ_BAND_MAX_DB),
+            preamp_db=_number(self.preamp_db, 0.0, PREAMP_MIN_DB, PREAMP_MAX_DB),
             bands_db=tuple(_number(b, 0.0, EQ_BAND_MIN_DB, EQ_BAND_MAX_DB) for b in bands),
             bass_pct=round(_number(self.bass_pct, 0.0, 0.0, 100.0)),
         )
@@ -115,6 +119,7 @@ class EqualizerSettings:
             "enabled": self.enabled,
             "preset": self.preset,
             "preamp_db": self.preamp_db,
+            "preamp_relative": True,  # 0.11 and later; older files stored libVLC's own scale
             "bands_db": list(self.bands_db),
             "bass_pct": self.bass_pct,
         }
@@ -124,10 +129,21 @@ class EqualizerSettings:
         if not isinstance(data, dict):
             return cls()
         bands = data.get("bands_db")
+        # Before 0.11 the preamp was stored on libVLC's scale (12 dB = normal level). A value someone set
+        # is converted so it sounds the same; the untouched default of 0 (which made the equalizer 12 dB too
+        # quiet, a bug) becomes normal level.
+        old_value = data.get("preamp_db")
+        converting = data.get("preamp_relative") is not True and old_value not in (None, 0, 0.0)
+        old_scale = PREAMP_UNITY_DB if converting else 0.0
         return cls(
             enabled=data.get("enabled") is True,
             preset=preset if isinstance(preset := data.get("preset"), str) else "",
-            preamp_db=_number(data.get("preamp_db"), 0.0, EQ_BAND_MIN_DB, EQ_BAND_MAX_DB),
+            preamp_db=_number(
+                _number(data.get("preamp_db"), 0.0, EQ_BAND_MIN_DB, EQ_BAND_MAX_DB) - old_scale,
+                0.0,
+                PREAMP_MIN_DB,
+                PREAMP_MAX_DB,
+            ),
             bands_db=tuple(bands) if isinstance(bands, list) else (0.0,) * EQ_BAND_COUNT,
             bass_pct=round(_number(data.get("bass_pct"), 0.0, 0.0, 100.0)),
         ).normalized()

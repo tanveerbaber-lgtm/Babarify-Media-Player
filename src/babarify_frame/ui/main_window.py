@@ -704,6 +704,7 @@ class MainWindow(QMainWindow):
         )
         if answer == QMessageBox.StandardButton.Yes:
             self.library_service.db.clear_history()
+            self._remember(last_queue=(), last_queue_index=-1)  # the saved queue is history too
             self.refresh_home()
             self.statusBar().showMessage("History cleared")
 
@@ -765,6 +766,9 @@ class MainWindow(QMainWindow):
             self.library_service.fetch_metadata()
         if not ok:
             self.show_page(self.player)  # the player page explains what failed
+        elif self._prefs.remember_history and self._prefs.last_queue and self.player.current_uri is None:
+            # The queue of the last session, paused where it was: nothing plays until asked (M2).
+            self.player.restore_queue(list(self._prefs.last_queue), self._prefs.last_queue_index)
         db = self.library_service.db
         notice = db.recovered or db.read_only_reason
         if notice:  # after the engine's own status line, so it is not overwritten
@@ -987,6 +991,11 @@ class MainWindow(QMainWindow):
         if prefs.remember_volume:
             volume, muted = self.player.volume_state()
             prefs = replace(prefs, volume=volume, muted=muted)
+        queue, index = self.player.queue
+        if prefs.remember_history and queue:
+            prefs = replace(prefs, last_queue=tuple(queue), last_queue_index=index)
+        elif not prefs.remember_history:
+            prefs = replace(prefs, last_queue=(), last_queue_index=-1)
         return prefs.normalized()
 
     # ------------------------------------------------------------ window

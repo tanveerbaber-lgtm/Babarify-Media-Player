@@ -7,6 +7,7 @@
   the same key are reported as duplicates; both stay in the library.
 * A cancelled scan changes nothing about files it did not reach; only a completed scan marks
   files that disappeared as unavailable.
+* A file that disappeared and reappeared elsewhere with the same content key keeps its history (M2).
 """
 
 from __future__ import annotations
@@ -39,6 +40,7 @@ class ScanSummary:
     missing: int  # marked unavailable by this scan
     cancelled: bool
     available: bool = True  # False if the folder itself could not be read
+    moved: tuple[tuple[str, str], ...] = ()  # (old path, new path) of files found in a new place (M2)
 
 
 def content_key(path: str, size: int) -> str | None:
@@ -129,4 +131,6 @@ def scan_folder(
         progress(seen)
     cancelled = cancel.is_set()
     missing = 0 if cancelled else db.mark_missing(folder.id, started)
-    return ScanSummary(folder.path, seen, changed, missing, cancelled)
+    # After the missing files are known: a file moved within or between library folders keeps its history.
+    moved = () if cancelled else tuple(db.reconnect_moved())
+    return ScanSummary(folder.path, seen, changed, missing, cancelled, moved=moved)

@@ -23,6 +23,7 @@ from typing import Any
 
 from babarify_frame.core.cover_art import read_embedded_picture
 from babarify_frame.core.models import AUDIO_EXTENSIONS
+from babarify_frame.library import lyrics
 from babarify_frame.library.database import LibraryDatabase, ProbeRecord
 from babarify_frame.library.models import path_key
 from babarify_frame.library.scanner import ScanSummary, scan_folder
@@ -184,7 +185,10 @@ class LibraryService:
             def progress(files: int, folder_path: str = folder.path) -> None:
                 self._emit(ScanProgress(folder_path, files))
 
-            summaries.append(scan_folder(self.db, folder, self._cancel, progress))
+            summary = scan_folder(self.db, folder, self._cancel, progress)
+            for old_path, new_path in summary.moved:
+                lyrics.move(old_path, new_path)
+            summaries.append(summary)
         self._emit(ScanFinished(tuple(summaries)))
 
     def _get_probe(self) -> MediaProbe | None:

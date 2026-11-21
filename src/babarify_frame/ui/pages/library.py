@@ -705,10 +705,13 @@ class LibraryPage(QWidget):
             self.status_changed.emit(f"Scanning {event.folder} · {event.files} files")
         elif isinstance(event, ScanFinished):
             files = sum(s.files for s in event.summaries)
-            missing = sum(s.missing for s in event.summaries)
+            moved = sum(len(s.moved) for s in event.summaries)
+            missing = sum(s.missing for s in event.summaries) - moved
             offline = [s.folder for s in event.summaries if not s.available]
             text = f"Scan finished · {files} files"
-            if missing:
+            if moved:
+                text += f" · {moved} moved or renamed (history kept)"
+            if missing > 0:
                 text += f" · {missing} no longer found"
             if offline:
                 text += f" · not reachable: {', '.join(offline)}"

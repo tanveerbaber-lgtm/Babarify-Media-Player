@@ -40,6 +40,8 @@ from babarify_frame.core.enhancements import (
     MAX_PROFILE_NAME,
     MAX_PROFILES,
     PICTURE_RANGES,
+    PREAMP_MAX_DB,
+    PREAMP_MIN_DB,
     TRANSFORM_LABELS,
     ZOOM_LEVELS,
     EnhancementProfile,
@@ -297,7 +299,7 @@ class EnhancementsDialog(QDialog):
         box.addLayout(bands)
         self.bass = SoundDial("Bass boost", 0, 100, lambda value: f"{value} %")
         self.preamp = SoundDial(
-            "Preamp in decibels", round(EQ_BAND_MIN_DB), round(EQ_BAND_MAX_DB), lambda value: f"{value:+d} dB"
+            "Preamp in decibels", round(PREAMP_MIN_DB), round(PREAMP_MAX_DB), lambda value: f"{value:+d} dB"
         )
         dials = QHBoxLayout()
         dials.addStretch(1)

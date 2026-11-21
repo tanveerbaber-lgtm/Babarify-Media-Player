@@ -40,6 +40,7 @@ from babarify_frame.core.errors import ErrorCode, PlaybackError
 from babarify_frame.core.events import ErrorOccurred, MediaInfoChanged, Notice, StateChanged
 from babarify_frame.core.models import (
     AUDIO_EXTENSIONS,
+    VIDEO_EXTENSIONS,
     Chapter,
     EngineCapabilities,
     EngineOptions,
@@ -48,7 +49,14 @@ from babarify_frame.core.models import (
     TrackInfo,
     TrackKind,
 )
-from babarify_frame.core.music import RepeatMode, VisualStyle, fade_level, index_after_end, shuffled
+from babarify_frame.core.music import (
+    RepeatMode,
+    VisualStyle,
+    fade_level,
+    index_after_end,
+    next_in_folder,
+    shuffled,
+)
 from babarify_frame.library.database import LibraryDatabase, LibraryError
 from babarify_frame.library.history import SAVE_INTERVAL_MS, resume_position
 from babarify_frame.library.models import Bookmark
@@ -633,6 +641,19 @@ class PlayerPage(QWidget):
     @property
     def queue(self) -> tuple[list[str], int]:
         return list(self._queue), self._queue_index
+
+    def restore_queue(self, paths: list[str], index: int) -> bool:
+        """The queue from the last session, ready and paused at the file that was current (M2).
+
+        Files that no longer exist are left out. Returns False if there is nothing to restore."""
+        current = paths[index] if 0 <= index < len(paths) else None
+        existing = [p for p in paths if os.path.isfile(p)]
+        if current is None or current not in existing:
+            return False
+        self._queue, self._ordered_queue = existing, None
+        self._queue_index = existing.index(current)
+        self.open_path(current, autoplay=False, keep_queue=True)
+        return True
 
     def play_queue(self, paths: list[str], start: int = 0, shuffle: bool = False) -> None:
         """Play a list of files in order (a playlist). Unavailable files are skipped."""
@@ -1407,6 +1428,16 @@ class PlayerPage(QWidget):
                 QTimer.singleShot(0, lambda: self.play_queue_item(following))
         elif self._repeat is not RepeatMode.OFF and path is not None:
             QTimer.singleShot(0, lambda: self.open_path(path))
+        elif (
+            self._prefs.autoplay_next_video
+            and path is not None
+            and "://" not in path
+            and os.path.splitext(path)[1].lower() in VIDEO_EXTENSIONS
+        ):
+            next_video = next_in_folder(path, VIDEO_EXTENSIONS)
+            if next_video is not None:
+                self.status_changed.emit(f"Next video: {os.path.basename(next_video)}")
+                QTimer.singleShot(0, lambda: self.open_path(next_video))
 
     def _apply_media_info(self, info: MediaInfo) -> None:
         self._duration_ms = info.duration_ms
