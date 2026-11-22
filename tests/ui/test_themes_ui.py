@@ -19,6 +19,7 @@ from babarify_frame.ui import controls, theme
 from babarify_frame.ui.app import load_icon
 from babarify_frame.ui.audio_view import colour_from
 from babarify_frame.ui.main_window import MainWindow
+from babarify_frame.ui.pages.library import SECTION_TABS
 from babarify_frame.ui.pages.settings import theme_swatch
 
 pytestmark = pytest.mark.ui
@@ -105,8 +106,8 @@ def test_lit_buttons_take_the_new_colour(
     window.player.cycle_repeat()
     assert THEMES[DEFAULT_THEME].accent2 in asked
     asked.clear()
-    choose(window, "sunset")
-    assert THEMES["sunset"].accent2 in asked
+    choose(window, "teal")
+    assert THEMES["teal"].accent2 in asked
 
 
 def test_light_redraws_every_button_and_the_rail_in_its_colours(
@@ -133,27 +134,21 @@ def test_light_redraws_every_button_and_the_rail_in_its_colours(
     choose(window, DEFAULT_THEME)
 
 
-def test_the_rail_has_a_quick_theme_button_under_settings(window: MainWindow, tmp_path: Path) -> None:
-    assert window.nav_theme.isVisible()
-    assert window.nav_theme.accessibleName() == "Colour theme"
-    assert window.nav_theme.y() > window.nav_settings.y()
-    assert not window.nav_theme.isCheckable(), "it opens a list rather than a page"
-    menu = window.build_theme_menu()
-    actions = menu.actions()
+def test_the_colour_theme_is_one_click_away_in_the_view_menu(window: MainWindow, tmp_path: Path) -> None:
+    window.theme_menu.aboutToShow.emit()  # as when the menu opens
+    actions = window.theme_menu.actions()
     assert [action.text() for action in actions] == [palette.label for palette in THEMES.values()]
-    assert [action.text() for action in actions if action.isChecked()] == ["Ocean"]
-    next(action for action in actions if action.text() == "Forest").trigger()
+    assert [action.text() for action in actions if action.isChecked()] == ["Ocean Blue"]
+    next(action for action in actions if action.text() == "Forest Green").trigger()
     assert theme.current_theme == "forest"
     assert window.settings.colour_theme.currentData() == "forest", "Settings agrees"
     assert PreferencesStore(tmp_path / "settings.json").load().colour_theme == "forest"
-    assert [a.text() for a in window.build_theme_menu().actions() if a.isChecked()] == ["Forest"]
+    window.theme_menu.aboutToShow.emit()
+    assert [a.text() for a in window.theme_menu.actions() if a.isChecked()] == ["Forest Green"]
     choose(window, DEFAULT_THEME)
 
 
-def test_the_rail_has_a_quick_animation_button_under_theme(window: MainWindow, tmp_path: Path) -> None:
-    assert window.nav_animation.isVisible()
-    assert window.nav_animation.accessibleName() == "Animation for audio"
-    assert window.nav_animation.y() > window.nav_theme.y()
+def test_the_animation_is_chosen_in_the_view_menu(window: MainWindow, tmp_path: Path) -> None:
     actions = window.build_animation_menu().actions()
     assert [a.text() for a in actions if a.isChecked()] == ["Change automatically"]
     next(a for a in actions if a.text() == "Circle").trigger()
@@ -163,20 +158,40 @@ def test_the_rail_has_a_quick_animation_button_under_theme(window: MainWindow, t
     assert [a.text() for a in window.build_animation_menu().actions() if a.isChecked()] == ["Circle"]
 
 
-def test_settings_replaces_about_in_the_group_at_the_bottom_of_the_rail(window: MainWindow) -> None:
-    rail_buttons = [b for b in window.findChildren(QToolButton) if b.objectName() == "navButton"]
-    assert "About" not in [b.text() for b in rail_buttons]
+def test_the_rail_follows_the_design(window: MainWindow) -> None:
+    """Home, Music, Videos, Playlists, Playing, and Settings set apart at the bottom (M3)."""
+    rail_buttons = sorted(
+        (b for b in window.findChildren(QToolButton) if b.objectName() == "navButton"), key=lambda b: b.y()
+    )
+    assert [b.text() for b in rail_buttons] == ["Home", "Music", "Videos", "Playlists", "Playing", "Settings"]
     assert {b.width() for b in rail_buttons} == {window.nav_home.width()}, "lined up"
     if real_display():  # with no display there is no Arial or icon font, so the sizes mean nothing
         for button in rail_buttons:
             assert button.sizeHint().width() <= button.width(), f"{button.text()} would be cut off"
-    assert max(rail_buttons, key=lambda b: b.y()) is window.nav_animation
     gap = window.nav_settings.y() - window.nav_player.geometry().bottom()
-    assert gap > window.nav_theme.y() - window.nav_settings.geometry().bottom(), (
-        "set apart from the pages above"
-    )
+    assert gap > 100, "set apart from the pages above"
     window.nav_settings.click()
     assert window.current_page() is window.settings
+
+
+@pytest.mark.parametrize(
+    ("button", "section", "title"),
+    [
+        ("nav_music", "music", "Music"),
+        ("nav_videos", "videos", "Videos"),
+        ("nav_playlists", "playlists", "Playlists"),
+    ],
+)
+def test_music_videos_and_playlists_show_their_part_of_the_library(
+    window: MainWindow, button: str, section: str, title: str
+) -> None:
+    getattr(window, button).click()
+    library = window.library
+    assert window.current_page() is library and library.section == section and library.title.text() == title
+    assert getattr(window, button).isChecked()
+    shown = [library.tabs.tabText(i) for i in range(library.tabs.count()) if library.tabs.isTabVisible(i)]
+    assert shown == list(SECTION_TABS[section])
+    assert library.video_view.isVisibleTo(library) is (section == "videos")
 
 
 def test_home_shows_the_name_once_in_the_brand_colours(window: MainWindow) -> None:

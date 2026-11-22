@@ -29,6 +29,7 @@ class ProbeResult:
     artist: str | None = None
     album: str | None = None
     year: int | None = None
+    genre: str | None = None
 
 
 class MediaProbe(ABC):

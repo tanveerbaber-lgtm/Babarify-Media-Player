@@ -106,6 +106,7 @@ class LibVlcProbe(MediaProbe):
                 artist=self._tag(media, vlc.Meta.Artist, path),
                 album=self._tag(media, vlc.Meta.Album, path),
                 year=_year(self._tag(media, vlc.Meta.Date, path)),
+                genre=self._tag(media, vlc.Meta.Genre, path),
             )
             # A song's cover can look like a video track, so the file's name counts too.
             if named_audio or (video is None and tracks):
@@ -208,6 +209,7 @@ class LibVlcProbe(MediaProbe):
             artist=result.artist,
             album=result.album,
             year=result.year,
+            genre=result.genre,
             thumbnail=bytes(state["buf"]),
             thumbnail_width=state["w"],
             thumbnail_height=state["h"],

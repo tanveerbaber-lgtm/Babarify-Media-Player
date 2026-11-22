@@ -60,6 +60,7 @@ class MediaEntry:
     title: str | None = None  # from the file's tags
     artist: str | None = None
     album: str | None = None
+    genre: str | None = None
 
     @property
     def display_title(self) -> str:

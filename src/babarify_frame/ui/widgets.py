@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from functools import cache
 
 from PySide6.QtCore import QEvent, QPoint, QRectF, Qt, Signal
@@ -50,6 +51,7 @@ GLYPHS = {
     "animation": "\ue9e9",
     "heart": "\ue00b",
     "heart_filled": "\ueb52",
+    "playlists": "\ue8fd",  # BulletedList
     "library": "",  # Library
 }
 
@@ -221,3 +223,25 @@ class SeekSlider(QSlider):
                 event.accept()
                 return
         super().mousePressEvent(event)
+
+
+def set_topmost(window: QWidget, enabled: bool) -> None:
+    """Keep a window above other windows, or stop doing so (M3).
+
+    On Windows this asks the window manager directly: changing Qt's window flags would rebuild the native
+    window, and the video surface libVLC draws into with it. Elsewhere the Qt flag is used."""
+    if sys.platform == "win32":
+        import ctypes
+
+        set_window_pos = ctypes.windll.user32.SetWindowPos
+        # Handles are pointer-sized: without these types, -1 (HWND_TOPMOST) would not reach Windows as -1.
+        set_window_pos.argtypes = (ctypes.c_void_p, ctypes.c_void_p, *[ctypes.c_int] * 4, ctypes.c_uint)
+        set_window_pos.restype = ctypes.c_int
+        hwnd_topmost, hwnd_notopmost = -1, -2
+        flags = 0x0001 | 0x0002 | 0x0010  # SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE
+        set_window_pos(int(window.winId()), hwnd_topmost if enabled else hwnd_notopmost, 0, 0, 0, 0, flags)
+        return
+    visible = window.isVisible()
+    window.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, enabled)
+    if visible:
+        window.show()

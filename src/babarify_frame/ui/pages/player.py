@@ -437,6 +437,10 @@ class PlayerPage(QWidget):
         return self._current_uri if self.has_media else None
 
     @property
+    def duration_ms(self) -> int | None:
+        return self._duration_ms
+
+    @property
     def media_name(self) -> str:
         return self._media_name
 

@@ -10,13 +10,14 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal
+from PySide6.QtCore import QPoint, QRect, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QIcon, QLinearGradient, QPainter, QPaintEvent, QPen, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMenu,
@@ -29,7 +30,7 @@ from PySide6.QtWidgets import (
 )
 
 from babarify_frame import PRODUCT_NAME, TAGLINE
-from babarify_frame.library.models import HistoryEntry
+from babarify_frame.library.models import HistoryEntry, MediaEntry
 from babarify_frame.ui import theme
 from babarify_frame.ui.widgets import format_time, glyph_icon
 
@@ -117,6 +118,7 @@ class HomePage(QWidget):
     open_requested = Signal()
     play_requested = Signal(str)  # a path from history
     forget_requested = Signal(str)  # remove one path from history
+    search_requested = Signal(str)  # words to look up in the library (M3)
 
     def __init__(self, logo: QIcon, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -147,7 +149,34 @@ class HomePage(QWidget):
         ]
         for widget in self._hero:
             column.addWidget(widget, alignment=Qt.AlignmentFlag.AlignHCenter)
-        column.addSpacing(theme.XL)
+        column.addSpacing(theme.L)
+        # One search across music and videos (M3); the window looks the words up.
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("Search your music and videos")
+        self.search.setAccessibleName("Search music and videos")
+        self.search.setClearButtonEnabled(True)
+        self.search.setMinimumWidth(360)
+        self.search.setMaximumWidth(560)
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(250)
+        self._search_timer.timeout.connect(lambda: self.search_requested.emit(self.search.text().strip()))
+        self.search.textChanged.connect(lambda _t: self._search_timer.start())
+        self.search_results = QListWidget()
+        self.search_results.setAccessibleName("Search results")
+        self.search_results.setMaximumWidth(560)
+        self.search_results.setMinimumWidth(360)
+        self.search_results.setMaximumHeight(320)
+        self.search_results.itemActivated.connect(
+            lambda item: self.play_requested.emit(item.data(Qt.ItemDataRole.UserRole))
+        )
+        self.search_results.hide()
+        self.search_none = _label("Nothing in your library matches", "muted")
+        self.search_none.hide()
+        column.addWidget(self.search, alignment=Qt.AlignmentFlag.AlignHCenter)
+        column.addWidget(self.search_results, alignment=Qt.AlignmentFlag.AlignHCenter)
+        column.addWidget(self.search_none, alignment=Qt.AlignmentFlag.AlignHCenter)
+        column.addSpacing(theme.L)
 
         self.drop_zone = QFrame()
         self.drop_zone.setObjectName("dropZone")
@@ -186,6 +215,20 @@ class HomePage(QWidget):
             _label("Local playback only · No account · No telemetry", "caption"),
             alignment=Qt.AlignmentFlag.AlignHCenter,
         )
+
+    def set_search_results(self, entries: list[MediaEntry]) -> None:
+        """Results for the words in the search box; nothing is shown while it is empty."""
+        self.search_results.clear()
+        searching = bool(self.search.text().strip())
+        for entry in entries:
+            kind = "Video" if entry.is_video else "Song"
+            details = " · ".join(part for part in (entry.artist, entry.album) if part)
+            item = QListWidgetItem(f"{entry.display_title}   {kind}{' · ' + details if details else ''}")
+            item.setData(Qt.ItemDataRole.UserRole, entry.path)
+            item.setToolTip(entry.path)
+            self.search_results.addItem(item)
+        self.search_results.setVisible(searching and bool(entries))
+        self.search_none.setVisible(searching and not entries)
 
     def _shortcut_grid(self) -> QWidget:
         grid_widget = QWidget()

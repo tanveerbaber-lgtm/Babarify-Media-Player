@@ -362,7 +362,9 @@ class MusicPanel(QWidget):
         self.groups_view.setMouseTracking(True)
         self.groups_view.setFrameShape(QListView.Shape.NoFrame)
         if kind is not None:
-            self.groups_view.setAccessibleName("Albums" if kind is GroupKind.ALBUM else "Artists")
+            self.groups_view.setAccessibleName(
+                {GroupKind.ALBUM: "Albums", GroupKind.ARTIST: "Artists", GroupKind.GENRE: "Genres"}[kind]
+            )
             self.groups_view.setItemDelegate(GroupDelegate(self.songs, kind, self.groups_view))
             self.groups_view.setUniformItemSizes(True)
             if kind is GroupKind.ALBUM:
@@ -410,7 +412,7 @@ class MusicPanel(QWidget):
                 return
             self.close_group()
             return
-        noun = "album" if self.kind is GroupKind.ALBUM else "artist"
+        noun = {GroupKind.ALBUM: "album", GroupKind.ARTIST: "artist", GroupKind.GENRE: "genre"}[self.kind]
         self.summary.setText(f"{len(groups)} {noun}{'' if len(groups) == 1 else 's'}")
         self.stack.setCurrentWidget(self.groups_view if groups else self.empty)
         self._set_empty_text()

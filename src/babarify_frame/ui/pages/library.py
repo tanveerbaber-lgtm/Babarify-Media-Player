@@ -232,7 +232,10 @@ class PlaylistsPanel(QWidget):
         right = QVBoxLayout()
         self.items = QListWidget()
         self.items.setAccessibleName("Playlist items")
-        self.items.setDragDropMode(QAbstractItemView.DragDropMode.NoDragDrop)
+        # Songs are put in order by dragging them (M3), in the person's own playlists only.
+        self.items.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.items.setDefaultDropAction(Qt.DropAction.MoveAction)
+        self.items.model().rowsMoved.connect(lambda *_args: self._dropped())
         right.addWidget(self.items, stretch=1)
         item_buttons = QHBoxLayout()
         self.play_button = QPushButton("Play")
@@ -352,6 +355,7 @@ class PlaylistsPanel(QWidget):
         self.play_button.setEnabled(has_items)
         for button in (self.up_button, self.down_button):
             button.setEnabled(has_items and automatic is None)
+        self.items.setDragEnabled(has_items and automatic is None)
         self.remove_button.setEnabled(has_items and automatic in (None, "Favourites"))
         self.remove_button.setText("Remove from favourites" if automatic else "Remove from playlist")
         if automatic == "Favourites":
@@ -435,6 +439,14 @@ class PlaylistsPanel(QWidget):
         if paths:
             self.play_requested.emit(paths, max(0, self.items.currentRow()))
 
+    def _dropped(self) -> None:
+        """A song was dragged to a new place: keep the order the list now shows."""
+        pid = self.current_playlist
+        if pid is None or self.current_automatic is not None:
+            return
+        ids = [int(self.items.item(i).data(Qt.ItemDataRole.UserRole)) for i in range(self.items.count())]
+        self._service.db.reorder_playlist(pid, ids)
+
     def _move(self, delta: int) -> None:
         item = self.items.currentItem()
         if item is None:
@@ -454,6 +466,22 @@ class PlaylistsPanel(QWidget):
             self._service.db.remove_playlist_item(int(item.data(Qt.ItemDataRole.UserRole)))
         self.refresh()
         self._show_items(select_row=row)
+
+
+# The library's parts (M3): the side bar opens one at a time; "all" shows every tab (older layout, tests).
+SECTION_TABS = {
+    "music": ("Songs", "Albums", "Artists", "Genres", "For you"),
+    "videos": ("Media",),
+    "playlists": ("Playlists",),
+    "all": ("Media", "Songs", "Albums", "Artists", "Genres", "Playlists", "For you"),
+}
+SECTION_TITLES = {"music": "Music", "videos": "Videos", "playlists": "Playlists", "all": "Library"}
+VIDEO_VIEWS = (
+    ("All videos", "videos"),
+    ("Continue watching", "continue"),
+    ("Recently watched", "recent"),
+    ("Favourites", "favourites"),
+)
 
 
 class LibraryPage(QWidget):
@@ -478,7 +506,10 @@ class LibraryPage(QWidget):
         outer.setContentsMargins(theme.XXL, theme.XL, theme.XXL, theme.L)
         outer.setSpacing(theme.M)
         header = QHBoxLayout()
-        header.addWidget(_label("Library", "title"))
+        self.section = "all"
+        self._media_stale = True
+        self.title = _label("Library", "title")
+        header.addWidget(self.title)
         header.addStretch(1)
         self.folders_button = QPushButton("Folders…")
         self.folders_button.setAccessibleName("Choose library folders")
@@ -492,7 +523,7 @@ class LibraryPage(QWidget):
         outer.addLayout(header)
 
         self.tabs = QTabBar()
-        for name in ("Media", "Songs", "Albums", "Artists", "Playlists", "For you"):
+        for name in ("Media", "Songs", "Albums", "Artists", "Genres", "Playlists", "For you"):
             self.tabs.addTab(name)
         self.tabs.setAccessibleName("Library sections")
         self.tabs.setDrawBase(False)
@@ -517,10 +548,17 @@ class LibraryPage(QWidget):
             self.sort.addItem(text, order.value)
         index = self.sort.findData(sort)
         self.sort.setCurrentIndex(max(0, index))
+        # Which videos to show (M3, the Videos section): hidden elsewhere.
+        self.video_view = QComboBox()
+        self.video_view.setAccessibleName("Show")
+        for text, key in VIDEO_VIEWS:
+            self.video_view.addItem(text, key)
+        self.video_view.hide()
         self.remove_missing_button = QPushButton("Remove unavailable")
         self.remove_missing_button.setToolTip("Remove entries whose files can no longer be found")
         self.remove_missing_button.hide()
         tools.addWidget(self.search, stretch=1)
+        tools.addWidget(self.video_view)
         tools.addWidget(self.sort)
         tools.addWidget(self.remove_missing_button)
         media_box.addLayout(tools)
@@ -567,6 +605,7 @@ class LibraryPage(QWidget):
         self.songs_panel = self._music_panel(None)
         self.albums_panel = self._music_panel(GroupKind.ALBUM)
         self.artists_panel = self._music_panel(GroupKind.ARTIST)
+        self.genres_panel = self._music_panel(GroupKind.GENRE)
         self.playlists = PlaylistsPanel(service)
         self.stack.addWidget(self.playlists)
         self.for_you = ForYouPanel(service)
@@ -583,6 +622,7 @@ class LibraryPage(QWidget):
         self._refresh_timer.timeout.connect(self.refresh)
         self.search.textChanged.connect(lambda _t: self._search_timer.start())
         self.sort.currentIndexChanged.connect(self._sort_changed)
+        self.video_view.currentIndexChanged.connect(lambda _i: self.refresh())
         self.tabs.currentChanged.connect(self._tab_changed)
         self.folders_button.clicked.connect(self.manage_folders)
         self.empty_action.clicked.connect(self.manage_folders)
@@ -605,11 +645,13 @@ class LibraryPage(QWidget):
         self.stack.addWidget(panel)
         return panel
 
-    def _music_panels(self) -> tuple[MusicPanel, MusicPanel, MusicPanel]:
-        return (self.songs_panel, self.albums_panel, self.artists_panel)
+    def _music_panels(self) -> tuple[MusicPanel, ...]:
+        return (self.songs_panel, self.albums_panel, self.artists_panel, self.genres_panel)
 
     def _tab_changed(self, index: int) -> None:
         self.stack.setCurrentIndex(index)
+        if index == 0 and self._media_stale:
+            self.refresh()
         self.refresh_current_tab()
 
     def refresh_current_tab(self) -> None:
@@ -630,14 +672,42 @@ class LibraryPage(QWidget):
         new = menu.addAction("New playlist…")
         new.triggered.connect(lambda: self._add_to_new_playlist(entries))
 
+    # ----------------------------------------------------------- sections (M3)
+    def set_section(self, section: str) -> None:
+        """Show one part of the library: "music", "videos", "playlists", or "all" of it in tabs."""
+        self.section = section
+        tabs = SECTION_TABS[section]
+        names = [self.tabs.tabText(i) for i in range(self.tabs.count())]
+        keep = names[self.tabs.currentIndex()] in tabs
+        self.tabs.blockSignals(True)
+        try:
+            for index, name in enumerate(names):
+                self.tabs.setTabVisible(index, name in tabs)
+            self.tabs.setCurrentIndex(self.tabs.currentIndex() if keep else names.index(tabs[0]))
+        finally:
+            self.tabs.blockSignals(False)
+        self.stack.setCurrentIndex(self.tabs.currentIndex())
+        self.tabs.setVisible(len(tabs) > 1)
+        self.title.setText(SECTION_TITLES[section])
+        self.video_view.setVisible(section == "videos")
+        self.search.setPlaceholderText("Search videos" if section == "videos" else "Search names and folders")
+        self.refresh()
+        self.refresh_current_tab()
+
     # ----------------------------------------------------------- data
     @property
     def sort_order(self) -> SortOrder:
         return SortOrder(self.sort.currentData())
 
     def refresh(self) -> None:
+        if self.stack.currentIndex() != 0:  # Songs, Albums... on show: the grid catches up when shown
+            self._media_stale = True
+            self.scan_button.setEnabled(bool(self._service.db.folders()))
+            return
+        self._media_stale = False
         db = self._service.db
-        entries = db.media(self.search.text().strip(), self.sort_order)
+        view = str(self.video_view.currentData()) if self.section == "videos" else "all"
+        entries = db.media(self.search.text().strip(), self.sort_order, view=view)
         self.model.set_entries(entries)
         total, missing, pending = db.counts()
         has_folders = bool(db.folders())
@@ -696,6 +766,11 @@ class LibraryPage(QWidget):
         self.scan_button.setVisible(not scanning)
         if text:
             self.status_changed.emit(text)
+
+    def stop_listening(self) -> None:
+        """Before the library closes: a scan stopped by closing the app may still report; it is not read."""
+        self._bridge.delivered.disconnect(self._on_library_event)
+        self._refresh_timer.stop()
 
     def _on_library_event(self, event: object) -> None:
         if not isinstance(event, LibraryEvent):

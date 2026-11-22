@@ -20,7 +20,7 @@ from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtCore import QRect, QSize, Qt
+from PySide6.QtCore import QEvent, QRect, QSize, Qt
 from PySide6.QtGui import (
     QAction,
     QCloseEvent,
@@ -33,6 +33,7 @@ from PySide6.QtGui import (
     QImage,
     QKeySequence,
     QPainter,
+    QShowEvent,
 )
 from PySide6.QtWidgets import (
     QApplication,
@@ -71,13 +72,14 @@ from babarify_frame.ui.diagnostics import PlaybackInfoDialog
 from babarify_frame.ui.enhancements import EnhancementsDialog
 from babarify_frame.ui.lyrics_dialog import LyricsDialog
 from babarify_frame.ui.media_info import MediaInfoDialog
+from babarify_frame.ui.mini_player import MiniPlayer
 from babarify_frame.ui.pages.home import SHORTCUTS, HomePage
 from babarify_frame.ui.pages.library import HiddenFilesDialog, LibraryPage
 from babarify_frame.ui.pages.player import VOLUME_STEP, PlayerPage
 from babarify_frame.ui.pages.settings import SettingsPage, theme_swatch
 from babarify_frame.ui.report import ReportDialog
 from babarify_frame.ui.subtitles import SUBTITLE_FILTER
-from babarify_frame.ui.widgets import format_time, glyph_icon
+from babarify_frame.ui.widgets import format_time, glyph_icon, set_topmost
 
 MEDIA_FILTER = (
     "Media files (*.mp4 *.m4v *.mkv *.mov *.avi *.wmv *.webm *.ts *.mts *.m2ts *.mpg *.mpeg *.vob "
@@ -120,6 +122,7 @@ class MainWindow(QMainWindow):
             factory, engine_name, self._prefs, history=db, preview_factory=preview_factory
         )
         self.library = LibraryPage(self.library_service, self._prefs.library_sort)
+        self.library.set_section("music")  # M3: the side bar opens Music, Videos or Playlists
         self.settings = SettingsPage(self._prefs, self._store.path, library_path=db.path)
         self._pages = QStackedWidget()
         for page in (self.home, self.library, self.player, self.settings):
@@ -138,6 +141,9 @@ class MainWindow(QMainWindow):
         if self._prefs.background_picture:
             self._apply_background()
 
+        self.mini = MiniPlayer(self.player, icon)
+        self.mini.back_requested.connect(self.leave_mini_player)
+        self.mini.activated.connect(lambda: self._keep_on_top(self.mini))
         self._build_actions()
         self._connect_pages()
         self.statusBar().showMessage(f"Version {__version__} · Local-only · No telemetry")
@@ -161,23 +167,24 @@ class MainWindow(QMainWindow):
         self._nav = QButtonGroup(self)
         self._nav.setExclusive(True)
         self.nav_home = self._nav_button("home", "Home", "Home (Ctrl+1)", self.home)
-        self.nav_library = self._nav_button("library", "Library", "Library (Ctrl+L)", self.library)
-        self.nav_player = self._nav_button("now_playing", "Playing", "Now Playing (Ctrl+2)", self.player)
+        self.nav_music = self._nav_button("music", "Music", "Songs, albums, artists, genres (Ctrl+L)", None)
+        self.nav_videos = self._nav_button("now_playing", "Videos", "Your videos", None)
+        self.nav_playlists = self._nav_button("playlists", "Playlists", "Your playlists", None)
+        self._library_buttons = (
+            (self.nav_music, "music"),
+            (self.nav_videos, "videos"),
+            (self.nav_playlists, "playlists"),
+        )
+        for button, section in self._library_buttons:
+            self._nav.addButton(button)
+            button.clicked.connect(lambda _=False, s=section: self.show_library(s))
+        self.nav_library = self.nav_music  # its name before M3
+        self.nav_player = self._nav_button("play", "Playing", "Now Playing (Ctrl+2)", self.player)
         self.nav_settings = self._nav_button("settings", "Settings", "Settings (Ctrl+3)", self.settings)
-        for button in (self.nav_home, self.nav_library, self.nav_player):
+        for button in (self.nav_home, self.nav_music, self.nav_videos, self.nav_playlists, self.nav_player):
             box.addWidget(button)
         box.addStretch(1)
         box.addWidget(self.nav_settings)
-        self.nav_theme = self._nav_button("theme", "Theme", "Change the colour theme", None)
-        self.nav_theme.setCheckable(False)
-        self.nav_theme.setAccessibleName("Colour theme")
-        self.nav_theme.clicked.connect(self._show_theme_menu)
-        box.addWidget(self.nav_theme)
-        self.nav_animation = self._nav_button("animation", "Animation", "Animation for audio", None)
-        self.nav_animation.setCheckable(False)
-        self.nav_animation.setAccessibleName("Animation for audio")
-        self.nav_animation.clicked.connect(self._show_animation_menu)
-        box.addWidget(self.nav_animation)
         return rail
 
     def _nav_button(self, glyph: str, text: str, tip: str, page: QWidget | None) -> QToolButton:
@@ -215,7 +222,9 @@ class MainWindow(QMainWindow):
         self.home_action = self._action("&Home", [K("Ctrl+1")], lambda: self.show_page(self.home))
         self.player_action = self._action("&Now Playing", [K("Ctrl+2")], lambda: self.show_page(self.player))
         self.settings_action = self._action("&Settings", [K("Ctrl+3")], lambda: self.show_page(self.settings))
-        self.library_action = self._action("&Library", [K("Ctrl+L")], lambda: self.show_page(self.library))
+        self.library_action = self._action("&Music", [K("Ctrl+L")], lambda: self.show_library("music"))
+        self.videos_action = self._action("&Videos", [], lambda: self.show_library("videos"))
+        self.playlists_action = self._action("Pla&ylists", [], lambda: self.show_library("playlists"))
         self.add_folder_action = self._action("Add folder to &library…", [], self.choose_library_folder)
         self.next_action = self._action("&Next in playlist", [K(Qt.Key.Key_N)], p.next_in_queue)
         self.previous_action = self._action("P&revious in playlist", [K(Qt.Key.Key_P)], p.previous_in_queue)
@@ -354,17 +363,34 @@ class MainWindow(QMainWindow):
         ):
             video_menu.addAction(action)
         view_menu = menus.addMenu("&View")
-        for action in (self.home_action, self.library_action, self.player_action, self.settings_action):
+        for action in (
+            self.home_action,
+            self.library_action,
+            self.videos_action,
+            self.playlists_action,
+            self.player_action,
+            self.settings_action,
+        ):
             view_menu.addAction(action)
         view_menu.addSeparator()
         view_menu.addAction(self.fullscreen_action)
         view_menu.addAction(self.info_action)
         view_menu.addAction(self.media_info_action)
+        self.mini_action = self._action("&Mini player", [K("Ctrl+Shift+M")], self.enter_mini_player)
+        view_menu.addAction(self.mini_action)
+        self.on_top_action = QAction("Always on &top", self)
+        self.on_top_action.setCheckable(True)
+        self.on_top_action.setChecked(self._prefs.always_on_top)
+        self.on_top_action.toggled.connect(self.set_always_on_top)
+        view_menu.addAction(self.on_top_action)
         self.status_bar_action = QAction("Status &bar", self)
         self.status_bar_action.setCheckable(True)
         self.status_bar_action.setChecked(self._prefs.show_status_bar)
         self.status_bar_action.toggled.connect(self._choose_status_bar)
         view_menu.addAction(self.status_bar_action)
+        # The colour theme and the animation used to have buttons on the side bar (until M3).
+        self.theme_menu = view_menu.addMenu("Colour &theme")
+        self.theme_menu.aboutToShow.connect(self._fill_theme_menu)
         self.animation_menu = view_menu.addMenu("&Animation for audio")
         self.animation_menu.aboutToShow.connect(self._fill_animation_menu)
         help_menu = menus.addMenu("&Help")
@@ -400,6 +426,9 @@ class MainWindow(QMainWindow):
         self.library.status_changed.connect(self.statusBar().showMessage)
         self.library.sort_changed.connect(self._on_library_sort)
         self.home.play_requested.connect(self.open_path)
+        self.home.search_requested.connect(
+            lambda text: self.home.set_search_results(self.library_service.db.search_everything(text))
+        )
         self.home.forget_requested.connect(self._forget)
         self.player.history_changed.connect(self._history_changed)
         self.player.bookmarks_changed.connect(self._refresh_bookmarks)
@@ -438,17 +467,19 @@ class MainWindow(QMainWindow):
         self._pages.setCurrentWidget(page)
         for button, target in (
             (self.nav_home, self.home),
-            (self.nav_library, self.library),
             (self.nav_player, self.player),
             (self.nav_settings, self.settings),
         ):
             button.setChecked(target is page)
+        for button, section in self._library_buttons:
+            button.setChecked(page is self.library and self.library.section == section)
         if page is self.player:
             self.player.setFocus()
         elif page is self.home and self._home_dirty:
             self.refresh_home()
         elif page is self.library:
             self.library.refresh()
+            self.library.refresh_current_tab()  # the tab on show may be Songs, Albums... (M3)
         elif page is self.settings:
             self._refresh_old_ai_data()
         self._update_actions()
@@ -882,11 +913,56 @@ class MainWindow(QMainWindow):
             action.triggered.connect(lambda _=False, s=style: self._choose_animation(s))
         return menu
 
-    def _show_animation_menu(self) -> None:
-        self.build_animation_menu().exec(self.nav_animation.mapToGlobal(self.nav_animation.rect().topRight()))
+    # ------------------------------------------------------- mini-player and always on top (M3)
+    def enter_mini_player(self) -> None:
+        if self.isFullScreen():
+            self.exit_fullscreen()
+        self.mini.show()
+        set_topmost(self.mini, self._prefs.always_on_top)
+        self.hide()
+        self.mini.raise_()
+        self.mini.activateWindow()
 
-    def _show_theme_menu(self) -> None:
-        self.build_theme_menu().exec(self.nav_theme.mapToGlobal(self.nav_theme.rect().topRight()))
+    def leave_mini_player(self) -> None:
+        self.mini.hide()
+        self.show()
+        set_topmost(self, self._prefs.always_on_top)
+        self.raise_()
+        self.activateWindow()
+
+    def set_always_on_top(self, enabled: bool) -> None:
+        self._remember(always_on_top=enabled)
+        for window in (self, self.mini):
+            if window.isVisible():
+                set_topmost(window, enabled)
+
+    def _keep_on_top(self, window: QWidget) -> None:
+        """Windows ignores "on top" from a window that isn't the active one (measured: no error, no change),
+        e.g. right after start-up or when the mini player opens behind another app. So it is asked again
+        whenever one of our windows becomes active."""
+        if self._prefs.always_on_top:
+            set_topmost(window, True)
+
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        self._keep_on_top(self)
+
+    def changeEvent(self, event: QEvent) -> None:
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.ActivationChange and self.isActiveWindow():
+            self._keep_on_top(self)
+
+    def show_library(self, section: str) -> None:
+        """Music, Videos or Playlists (M3): one page, showing one part of the library at a time."""
+        if self.library.section != section:
+            self.library.set_section(section)
+        self.show_page(self.library)
+
+    def _fill_theme_menu(self) -> None:
+        self.theme_menu.clear()
+        for action in self.build_theme_menu().actions():
+            action.setParent(self.theme_menu)
+            self.theme_menu.addAction(action)
 
     def choose_colour_theme(self, key: str) -> None:
         combo = self.settings.colour_theme
@@ -1086,6 +1162,8 @@ class MainWindow(QMainWindow):
         )
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        self.mini.hide()
+        self.mini.deleteLater()
         if self._info_dialog is not None:
             self._info_dialog.close()
         if self._enhancements is not None:
@@ -1093,6 +1171,7 @@ class MainWindow(QMainWindow):
         self._store.save(self._final_preferences())
         # Rule: the engine must be closed while its host window still exists.
         self.player.shutdown()  # also saves the playback position
+        self.library.stop_listening()
         self.library_service.shutdown()
         self.library_service.db.close()
         super().closeEvent(event)

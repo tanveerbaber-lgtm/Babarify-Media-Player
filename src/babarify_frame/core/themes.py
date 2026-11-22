@@ -26,11 +26,15 @@ class Palette:
     amber: str = "#F59E0B"
     green: str = "#22C55E"
     light: bool = False
+    swatch: tuple[str, str] | None = None  # the colours of its square in theme lists, when not the accents
 
 
+# The eight themes of the reference design (M3), in its order. Accents are the design's own hexes, except
+# where a button would fail 4.5:1 contrast with its icon: Ocean Blue #0B6EC7, Royal Purple #8A2BE2 and
+# Rose Pink #E91E63 are lightened by 13 %, 21 % and 6 % for that use. Classic Dark's #2E3A46 is its panels.
 THEMES = {
     "ocean": Palette(
-        "Ocean",
+        "Ocean Blue",
         "#070B15",
         "#0E1628",
         "#16213A",
@@ -38,23 +42,11 @@ THEMES = {
         "#22304D",
         "#5E7096",
         "#8A9AB5",
-        "#3B82F6",
+        "#2B81CE",
         "#22D3EE",
     ),
-    "sunset": Palette(
-        "Sunset",
-        "#160A12",
-        "#241320",
-        "#351C2E",
-        "#46263D",
-        "#4A2A40",
-        "#8E6680",
-        "#B495A9",
-        "#F97316",
-        "#FB7185",
-    ),
     "forest": Palette(
-        "Forest",
+        "Forest Green",
         "#06130F",
         "#0D211B",
         "#153228",
@@ -62,11 +54,11 @@ THEMES = {
         "#214A3B",
         "#568573",
         "#8DB0A2",
-        "#10B981",
+        "#00B894",
         "#5EEAD4",
     ),
     "violet": Palette(
-        "Violet",
+        "Royal Purple",
         "#0E0A1C",
         "#191233",
         "#251B49",
@@ -74,11 +66,11 @@ THEMES = {
         "#3A2C69",
         "#7566A8",
         "#A89CCB",
-        "#A78BFA",
-        "#E879F9",
+        "#A358E8",
+        "#D8B4FE",
     ),
     "amber": Palette(
-        "Amber",
+        "Amber Gold",
         "#11100B",
         "#1E1B12",
         "#2C281A",
@@ -86,11 +78,23 @@ THEMES = {
         "#443D27",
         "#80744B",
         "#AFA582",
-        "#F59E0B",
+        "#F4A261",
         "#FDE047",
     ),
+    "teal": Palette(
+        "Teal Breeze",
+        "#051316",
+        "#0A1F24",
+        "#102C33",
+        "#163941",
+        "#1B424B",
+        "#4F8592",
+        "#8BB3BC",
+        "#00D9FF",
+        "#7DEBFF",
+    ),
     "rose": Palette(
-        "Rose",
+        "Rose Pink",
         "#170A10",
         "#27111B",
         "#3A1828",
@@ -98,12 +102,25 @@ THEMES = {
         "#55253C",
         "#94607A",
         "#BE95A9",
-        "#FB7185",
+        "#EA2C6C",
         "#F9A8D4",
+    ),
+    "classic": Palette(
+        "Classic Dark",
+        "#0E1114",
+        "#161B20",
+        "#20272E",
+        "#2E3A46",
+        "#2E3A46",
+        "#6E7B89",
+        "#9AA6B2",
+        "#A7B4C2",
+        "#D5DDE5",
+        swatch=("#2E3A46", "#A7B4C2"),
     ),
     "light": Palette(
         "Light",
-        "#F5F7FB",
+        "#F4F7FC",
         "#FFFFFF",
         "#EAEEF5",
         "#DCE3EE",
@@ -121,3 +138,5 @@ THEMES = {
         light=True,
     ),
 }
+# Themes that were retired, and the theme a saved choice moves to.
+RETIRED_THEMES = {"sunset": "amber"}

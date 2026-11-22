@@ -128,6 +128,18 @@ A feasibility prototype only, with no version planned yet
 - New: the queue is kept when you close the app and comes back, paused where it was, next time (only while
   play history is switched on; Clear history forgets it, and backups don't include it).
 - New: Settings → Fullscreen → "When a video ends, play the next video in its folder" (off by default).
+- Changed: the left bar is now Home, Music, Videos, Playlists, Playing and Settings. Music has Songs, Albums,
+  Artists and Genres; Videos shows all videos, Continue watching, Recently watched or Favourites. Theme and
+  animation are chosen in Settings or the View menu instead of the left bar.
+- New: eight colour themes: Ocean Blue, Forest Green, Royal Purple, Amber Gold, Teal Breeze, Rose Pink,
+  Classic Dark and Light. Sunset is retired; if you used it, you get Amber Gold.
+- New: genres, read from your songs' tags (songs are read once more, in the background, the first time).
+- New: one search box on Home finds songs and videos by title, artist, album, genre or file name.
+- New: drag songs to put a playlist in order (your own playlists; the automatic lists keep their own order).
+- New: a mini player (View → Mini player, Ctrl+Shift+M), and View → Always on top, which is remembered.
+- Changed: much quicker with large libraries. With 20,000 files, the Music tabs open in under 0.2 s (they took
+  up to 4 s), and the window stays responsive while folders are scanned.
+- Fixed: closing the app during a folder scan could write an error to the log.
 - Changed: a new app icon, a blue "B" with a play button, green sound bars and a green swoosh on a glossy blue
   tile, for the program, the installer, the taskbar and the left bar. The tagline is now "Play • Enjoy • Anytime".
 - Fixed: with a background picture, the Continue watching row on Home showed a second, squeezed copy of it.
