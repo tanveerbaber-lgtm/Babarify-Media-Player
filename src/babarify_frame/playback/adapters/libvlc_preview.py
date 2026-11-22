@@ -34,6 +34,9 @@ class LibVlcPreview(FramePreview):
         self._player: Any = None
         self._media: Any = None
         self._buf: Any = None
+        # Every buffer handed to libVLC stays alive until its player is released: if the video's format is set
+        # up again, the decoder may still write into the previous one (M4: a rare heap-corruption crash).
+        self._buffers: list[Any] = []
         self._size = (0, 0)
         self._frames = 0
         self._latest = b""
@@ -49,6 +52,7 @@ class LibVlcPreview(FramePreview):
             ctypes.memmove(chroma, b"RV32", 4)
             self._size = (w, h)
             self._buf = (ctypes.c_ubyte * (w * h * 4))()
+            self._buffers.append(self._buf)
             width[0], height[0] = w, h
             pitches[0], lines[0] = w * 4, h
             return 1
@@ -138,3 +142,4 @@ class LibVlcPreview(FramePreview):
             player.release()
         if media is not None:
             media.release()
+        self._buffers = []  # its player is gone; self._buf still holds the newest picture

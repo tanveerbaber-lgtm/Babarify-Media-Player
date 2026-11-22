@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "babarify-frame"
-version = "0.10.0"
+version = "0.11.0"
 description = "Babarify Media Player: a free, privacy-focused media player. Play • Enjoy • Anytime."
 readme = "README.md"
 requires-python = ">=3.13"

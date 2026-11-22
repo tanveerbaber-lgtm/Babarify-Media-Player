@@ -107,7 +107,9 @@ First Android version, for Android 10 or later. Built and tested, never publishe
 A feasibility prototype only, with no version planned yet
 ([M14 report](docs/milestones/M14/acceptance-report.md)).
 
-## Windows (next version, not released)
+## Windows 0.11.0 (ready to publish, 22 November 2026)
+
+Release notes: [0.11.0](docs/release-notes/0.11.0.md).
 
 - Changed: Babarify Media Player is now a local player. It plays files on this PC and makes no network
   connections of its own. Network streams and internet radio (File → Open network stream, dropped links)
@@ -140,6 +142,11 @@ A feasibility prototype only, with no version planned yet
 - Changed: much quicker with large libraries. With 20,000 files, the Music tabs open in under 0.2 s (they took
   up to 4 s), and the window stays responsive while folders are scanned.
 - Fixed: closing the app during a folder scan could write an error to the log.
+- Fixed: at high display scaling (200 % on a 1920 × 1080 screen), the Playlists page's buttons were cut off and
+  its "Your playlists" heading overlapped the lists.
+- Fixed: a rare crash while a video's seek-bar previews were being prepared (seen once in about 60 test runs).
+- New: before an update changes your library's format, a complete copy of it is kept next to it, named for
+  example `library.before-v7.db`, so an update can always be undone.
 - Changed: a new app icon, a blue "B" with a play button, green sound bars and a green swoosh on a glossy blue
   tile, for the program, the installer, the taskbar and the left bar. The tagline is now "Play • Enjoy • Anytime".
 - Fixed: with a background picture, the Continue watching row on Home showed a second, squeezed copy of it.

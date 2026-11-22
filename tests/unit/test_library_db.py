@@ -471,3 +471,29 @@ def test_copies_and_ambiguous_moves_are_left_alone(db: LibraryDatabase, tmp_path
     x.rename(folder / "x2.mp3")
     y.rename(folder / "y2.mp3")  # two identical files moved at once: which is which can't be known
     assert scan(db, folder).moved == ()
+
+
+def test_an_older_library_is_copied_before_it_is_migrated(tmp_path: Path) -> None:
+    """M4: an update can always be undone by hand; the copy is never overwritten and never made needlessly."""
+    path = tmp_path / "library.db"
+    conn = sqlite3.connect(str(path), isolation_level=None)
+    LibraryDatabase._migrate(conn, SCHEMA_VERSION - 1)  # a library as the previous version left it
+    conn.execute("INSERT INTO folders(path, path_key, added_at) VALUES ('C:/M', 'c:/m', 1)")
+    conn.close()
+    db = LibraryDatabase(path)
+    copy = db.before_migration_path(SCHEMA_VERSION - 1)
+    assert db.schema_version == SCHEMA_VERSION and copy.is_file()
+    old = sqlite3.connect(f"file:{copy}?mode=ro", uri=True)
+    assert old.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION - 1
+    assert old.execute("SELECT path FROM folders").fetchall() == [("C:/M",)]
+    old.close()
+    db.close()
+    stamp = copy.stat().st_mtime_ns
+    LibraryDatabase(path).close()  # already current: no new copy, the old one untouched
+    assert copy.stat().st_mtime_ns == stamp
+    assert sorted(p.name for p in tmp_path.glob("library.before-*")) == [copy.name]
+
+
+def test_a_new_library_gets_no_copy(tmp_path: Path) -> None:
+    LibraryDatabase(tmp_path / "library.db").close()
+    assert list(tmp_path.glob("library.before-*")) == []
