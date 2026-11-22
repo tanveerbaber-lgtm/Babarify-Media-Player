@@ -4,7 +4,7 @@ Released versions are published on the
 [releases page](https://github.com/tanveerbaber-lgtm/Babarify-Media-Player/releases). Details for Windows
 releases are in [`docs/release-notes/`](docs/release-notes/).
 
-## Windows 0.10.0 (ready to publish, 7 November 2026)
+## Windows 0.10.0 (2026-11-08, public beta)
 
 Release notes: [0.10.0](docs/release-notes/0.10.0.md).
 
@@ -107,7 +107,7 @@ First Android version, for Android 10 or later. Built and tested, never publishe
 A feasibility prototype only, with no version planned yet
 ([M14 report](docs/milestones/M14/acceptance-report.md)).
 
-## Windows 0.11.0 (ready to publish, 22 November 2026)
+## Windows 0.11.0 (2026-11-22, public beta)
 
 Release notes: [0.11.0](docs/release-notes/0.11.0.md).
 
