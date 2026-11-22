@@ -28,7 +28,7 @@ from babarify_frame.core.enhancements import (
 )
 from babarify_frame.core.models import SubtitleStyle
 from babarify_frame.core.music import AUDIO_EFFECTS, FADE_CHOICES_S, RepeatMode, VisualStyle
-from babarify_frame.core.themes import DEFAULT_THEME, THEMES
+from babarify_frame.core.themes import DEFAULT_THEME, RETIRED_THEMES, THEMES
 
 log = logging.getLogger(__name__)
 
@@ -96,6 +96,12 @@ class WindowGeometry:
     maximized: bool = False
 
 
+def _theme(key: str) -> str:
+    """A saved theme key; a retired theme moves to its replacement (Sunset became Amber Gold in 0.11)."""
+    key = RETIRED_THEMES.get(key, key)
+    return key if key in THEMES else DEFAULT_THEME
+
+
 @dataclass(frozen=True)
 class Preferences:
     volume: int = 80  # 1..100
@@ -129,6 +135,7 @@ class Preferences:
     visual_style: str = "auto"  # a VisualStyle value
     colour_theme: str = DEFAULT_THEME  # a THEMES key
     background_picture: str = ""  # a picture of the person's own, behind the main pages
+    always_on_top: bool = False  # the main window and the mini-player stay above other windows (M3)
     show_status_bar: bool = False  # the line of technical details along the bottom of the window
     # The queue when the app last closed (M2), kept only while history is remembered. Never in a backup.
     last_queue: tuple[str, ...] = ()
@@ -202,7 +209,7 @@ class Preferences:
             library_sort=self.library_sort if self.library_sort in LIBRARY_SORTS else "name",
             repeat_mode=self.repeat_mode if self.repeat_mode in set(RepeatMode) else "off",
             visual_style=self.visual_style if self.visual_style in set(VisualStyle) else "auto",
-            colour_theme=self.colour_theme if self.colour_theme in THEMES else DEFAULT_THEME,
+            colour_theme=_theme(self.colour_theme),
             picture=self.picture.normalized(),
             equalizer=self.equalizer.normalized(),
             profiles=_unique_profiles(self.profiles),

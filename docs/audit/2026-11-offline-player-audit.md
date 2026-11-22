@@ -221,3 +221,17 @@ Still to verify by hand: a run with Wi-Fi switched off (changing the PC's networ
 | Genuine crossfade | **Feasible, not built yet.** Two players overlap (about 0.2 s when started 1.5 s early, 0.8 s at 2 s); a second player needs about 1.2 s to start, so it must be preloaded. Needs two engines in the player: proposed as its own step | `tools/gapless_check.py` |
 | Rotation restart | Unchanged: libVLC 3 applies rotation only when playback starts | — |
 | Start-up | Unchanged in M2 (M1 already: cold 9.2 s → 4.0 s) | — |
+
+## 12. Milestone 3 results (22 November 2026, test build 0.10.0.10, not committed)
+
+| Item | Result | Evidence |
+|---|---|---|
+| Eight themes | **Done**, in the image's order. Ocean, Royal Purple and Rose accents lightened 13 %, 21 % and 6 % to reach 4.5:1 for icons; Classic Dark has its own swatch so it doesn't look light. Sunset → Amber Gold for anyone who used it | `tests/unit/test_themes.py`; `tools/a11y_audit.py` |
+| Genres | **Done.** Stored (schema 8), read again for existing songs, Genres tab grouped case-insensitively with Unknown genre last | `tests/unit/test_music_library.py`; a real tagged MP3 through libVLC |
+| Navigation | **Done.** Home · Music · Videos · Playlists · Playing · Settings; Videos has All, Continue watching, Recently watched and Favourites | `tests/ui/test_themes_ui.py` |
+| Global search | **Done** on Home: every word must match a title, artist, album, genre or file name; hidden and missing files are left out; about 40 ms at 20,000 files | `tests/ui/test_m3_ui.py` |
+| Drag-and-drop playlists | **Done** for the person's own playlists; a stale or foreign order can't move or lose an item | unit and UI tests |
+| Mini player, always on top | **Done.** Always on top uses `SetWindowPos`, so the window (and libVLC's video surface) is never rebuilt; checked on the real desktop | `tests/ui/test_m3_ui.py` |
+| 20,000 files | Scan 394 s with the worst UI pause 115 ms. Before the fixes: Songs tab 4.1 s, Albums and Genres 2.4 s, Videos 2.9–4.8 s. After (blocked tab signals during section switches, the media grid loaded only when shown, the song list kept until the library visibly changes): Music page 0.2 s, tabs 27–164 ms, Videos 0.8 s, Playlists 23 ms, search 40 ms | `tools/large_library_check.py` |
+| Closing during a scan | **Fixed:** a stopped scan's last report reached the page after the library was closed (an error in the log) | timing runs |
+| Not done | Scan speed for many new files (6.5 min for 20,000) not investigated; the mini player has no artwork; crossfade still awaits a decision | — |

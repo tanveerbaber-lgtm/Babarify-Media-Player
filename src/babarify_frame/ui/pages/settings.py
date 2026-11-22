@@ -78,8 +78,9 @@ def theme_swatch(palette: Palette) -> QIcon:
         painter.setPen(QPen(QColor(palette.control_border), 1))
         rect = QRectF(0.5, 0.5, 15, 15)
     else:
-        gradient.setColorAt(0, QColor(palette.accent))
-        gradient.setColorAt(1, QColor(palette.accent2))
+        start, end = palette.swatch or (palette.accent, palette.accent2)
+        gradient.setColorAt(0, QColor(start))
+        gradient.setColorAt(1, QColor(end))
         painter.setPen(Qt.PenStyle.NoPen)
         rect = QRectF(0, 0, 16, 16)
     painter.setBrush(gradient)

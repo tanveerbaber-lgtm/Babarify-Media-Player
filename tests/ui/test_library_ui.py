@@ -47,6 +47,9 @@ def make_window(
         store.save(prefs)
     service = LibraryService(LibraryDatabase(db_path), FakeProbe, tmp_path / "thumbs")
     win = MainWindow(mock_factory(), load_icon(), engine_name="mock", store=store, library=service)
+    # These tests are about the media grid: every tab, on the Media tab (the window opens Music since M3).
+    win.library.set_section("all")
+    win.library.tabs.setCurrentIndex(0)
     qtbot.addWidget(win)
     win.show()
     win.start_engine()

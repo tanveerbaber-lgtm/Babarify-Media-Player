@@ -306,3 +306,102 @@ def test_existing_library_is_kept_and_only_its_music_read_again(tmp_path: Path) 
     assert db._query("SELECT play_count FROM history")[0][0] == 7
     assert db.favourites() == []
     db.close()
+
+
+def test_genres_group_with_unknowns_last() -> None:
+    from babarify_frame.library.music import UNKNOWN_GENRE
+
+    songs = [
+        replace(song("a"), genre="Rock"),
+        replace(song("b"), genre=" rock "),
+        replace(song("c"), genre="Jazz"),
+        song("d"),
+    ]
+    genres = group_songs(songs, GroupKind.GENRE)
+    assert [g.title for g in genres] == ["Jazz", "Rock", UNKNOWN_GENRE]
+    assert [s.title for s in genres[1].songs] == ["a", "b"], "spacing and capitals don't split a genre"
+
+
+def test_genres_are_read_once_more_after_the_update(tmp_path: Path) -> None:
+    """Songs probed by 0.10 are probed again so their genre is filled in; videos are left alone."""
+    import sqlite3
+
+    from babarify_frame.library.database import ProbeRecord
+
+    path = tmp_path / "library.db"
+    conn = sqlite3.connect(path, isolation_level=None)
+    LibraryDatabase._migrate(conn, target=7)
+    conn.execute("INSERT INTO folders(path, path_key, added_at) VALUES ('C:/M', 'c:\\m', 1)")
+    for name, audio, video in (("a.mp3", "mp3", None), ("film.mkv", "aac", "h264")):
+        conn.execute(
+            "INSERT INTO media(folder_id, path, path_key, name, size, mtime, added_at, scanned_at, probed, "
+            "audio_codec, video_codec) VALUES (1, ?, ?, ?, 1, 1, 1, 1, 1, ?, ?)",
+            (f"C:/M/{name}", rf"c:\m\{name}", name, audio, video),
+        )
+    conn.close()
+    db = LibraryDatabase(path)
+    pending = dict((p, i) for i, p in db.media_to_probe(10))
+    assert list(pending) == ["C:/M/a.mp3"]
+    db.set_probe_result(pending["C:/M/a.mp3"], ProbeRecord(1000, None, None, None, "mp3", None, genre="Jazz"))
+    assert [s.genre for s in db.songs()] == ["Jazz"]
+    db.close()
+
+
+def test_one_search_finds_songs_and_videos(tmp_path: Path) -> None:
+    db, folder = library(tmp_path)
+    add(db, folder, "a.mp3", title="Blue Train", artist="Coltrane", album="Blue Train")
+    add(db, folder, "b.mp3", title="So What", artist="Miles Davis", album="Kind of Blue")
+    add(db, folder, "Blue Planet ep1.mkv", video_codec="h264", audio_codec="aac")
+    add(db, folder, "c.mp3", title="Rain", artist="Aki")
+    titles = lambda q: [e.display_title for e in db.search_everything(q)]  # noqa: E731
+    assert titles("blue") == ["Blue Planet ep1", "Blue Train", "So What"]  # titles, albums and file names
+    assert titles("blue miles") == ["So What"]  # every word must match
+    assert titles("coltrane") == ["Blue Train"]
+    assert titles("") == [] and titles("zzz") == []
+    db.hide_media(["C:/music/a.mp3"])
+    assert titles("coltrane") == []  # hidden files stay hidden
+
+
+def test_a_dragged_playlist_order_is_kept(tmp_path: Path) -> None:
+    db, _folder = library(tmp_path)
+    mix, other = db.create_playlist("Mix"), db.create_playlist("Other")
+    db.add_to_playlist(mix.id, ["C:/a.mp3", "C:/b.mp3", "C:/c.mp3"])
+    db.add_to_playlist(other.id, ["C:/x.mp3"])
+    a, b, c = (i.id for i in db.playlist_items(mix.id))
+    stranger = db.playlist_items(other.id)[0].id
+    db.reorder_playlist(mix.id, [c, a, b])
+    assert [i.path for i in db.playlist_items(mix.id)] == ["C:/c.mp3", "C:/a.mp3", "C:/b.mp3"]
+    db.reorder_playlist(mix.id, [b, stranger, 999])  # a stale or foreign list moves nothing away
+    assert [i.path for i in db.playlist_items(mix.id)] == ["C:/b.mp3", "C:/c.mp3", "C:/a.mp3"]
+    assert [i.path for i in db.playlist_items(other.id)] == ["C:/x.mp3"]
+
+
+def test_the_song_list_is_read_again_after_any_change(tmp_path: Path) -> None:
+    """Songs are kept between tabs for speed (M3); a change of any kind must show at once."""
+    db, folder = library(tmp_path)
+    add(db, folder, "a.mp3", title="Blue Train", artist="Coltrane")
+    add(db, folder, "b.mp3", title="So What", artist="Miles Davis")
+    first = db.songs()
+    assert db.songs() == first and db.songs() is not first  # the same answer, never the shared list itself
+    db.save_position("C:/music/a.mp3", "Blue Train", 5000, 200_000)
+    assert next(s for s in db.songs() if s.display_title == "Blue Train").position_ms == 5000
+    db.hide_media(["C:/music/b.mp3"])
+    assert [s.display_title for s in db.songs()] == ["Blue Train"]
+    add(db, folder, "c.mp3", title="Rain", artist="Aki")
+    assert sorted(s.display_title for s in db.songs()) == ["Blue Train", "Rain"]
+    assert [s.display_title for s in db.songs(search="aki")] == ["Rain"]  # each question is kept apart
+
+
+def test_a_rescan_of_unchanged_files_keeps_the_song_list(tmp_path: Path) -> None:
+    db, folder = library(tmp_path)
+    add(db, folder, "a.mp3", title="Blue Train")
+    entry = db.media_by_path("C:/music/a.mp3")
+    assert entry is not None
+    db.songs()
+    generation = db._generation
+    db.upsert_media([ScanRecord(entry.path, folder, 100, 1.0, None)], time.time())  # seen again, unchanged
+    assert db._generation == generation
+    db.mark_missing(folder, time.time() + 1)  # now it is gone: that shows
+    assert db._generation > generation and [s.available for s in db.songs()] == [False]
+    db.upsert_media([ScanRecord(entry.path, folder, 100, 1.0, None)], time.time() + 2)  # and back
+    assert [s.display_title for s in db.songs()] == ["Blue Train"]

@@ -12,6 +12,7 @@ from babarify_frame.library.models import MediaEntry
 class GroupKind(StrEnum):
     ALBUM = "album"
     ARTIST = "artist"
+    GENRE = "genre"
 
 
 class SongSort(StrEnum):
@@ -39,6 +40,7 @@ SONG_SORT_LABELS = {
 }
 UNKNOWN_ALBUM = "Unknown album"
 UNKNOWN_ARTIST = "Unknown artist"
+UNKNOWN_GENRE = "Unknown genre"
 VARIOUS_ARTISTS = "Various artists"
 
 
@@ -65,10 +67,15 @@ def _album_key(song: MediaEntry) -> str:
 
 
 def group_songs(songs: list[MediaEntry], kind: GroupKind) -> list[SongGroup]:
-    """Albums or artists, sorted by name, with the unknown group last."""
+    """Albums, artists or genres, sorted by name, with the unknown group last."""
     gathered: dict[str, list[MediaEntry]] = {}
     for song in songs:
-        key = _album_key(song) if kind is GroupKind.ALBUM else (song.artist or "").casefold()
+        if kind is GroupKind.ALBUM:
+            key = _album_key(song)
+        elif kind is GroupKind.GENRE:
+            key = (song.genre or "").strip().casefold()
+        else:
+            key = (song.artist or "").casefold()
         gathered.setdefault(key, []).append(song)
     groups = []
     for key, members in gathered.items():
@@ -77,6 +84,9 @@ def group_songs(songs: list[MediaEntry], kind: GroupKind) -> list[SongGroup]:
             title = first.album or UNKNOWN_ALBUM
             artists = {(song.artist or "").casefold() for song in members}
             artist = (first.artist or UNKNOWN_ARTIST) if len(artists) == 1 else VARIOUS_ARTISTS
+        elif kind is GroupKind.GENRE:
+            title = (first.genre or "").strip() or UNKNOWN_GENRE
+            artist = ""
         else:
             title = first.artist or UNKNOWN_ARTIST
             artist = ""

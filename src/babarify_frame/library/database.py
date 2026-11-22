@@ -157,6 +157,14 @@ MIGRATIONS: tuple[tuple[str, ...], ...] = (
             album TEXT,
             thumbnail TEXT)""",
     ),
+    (  # 8: genres (M3). Existing songs are read once more, in the background, for theirs.
+        "ALTER TABLE media ADD COLUMN genre TEXT",
+        """UPDATE media SET probed = 0 WHERE (video_codec IS NULL AND audio_codec IS NOT NULL)
+            OR lower(name) LIKE '%.mp3' OR lower(name) LIKE '%.m4a' OR lower(name) LIKE '%.aac'
+            OR lower(name) LIKE '%.flac' OR lower(name) LIKE '%.wav' OR lower(name) LIKE '%.ogg'
+            OR lower(name) LIKE '%.opus' OR lower(name) LIKE '%.wma' OR lower(name) LIKE '%.ac3'
+            OR lower(name) LIKE '%.mka'""",
+    ),
 )
 SCHEMA_VERSION = len(MIGRATIONS)
 _NOT_HIDDEN = "m.path_key NOT IN (SELECT path_key FROM hidden_media)"
@@ -240,6 +248,7 @@ class ProbeRecord:
     artist: str | None = None
     album: str | None = None
     year: int | None = None
+    genre: str | None = None
 
 
 def default_database_path() -> Path:
@@ -257,6 +266,11 @@ class LibraryDatabase:
         self.recovered: str | None = None
         self.read_only_reason: str | None = None
         self._lock = threading.RLock()
+        self._generation = (
+            0  # goes up on every visible write; cached lists are only used while it is unchanged
+        )
+        self._unseen_changes = 0  # rows the current write changed that no list shows
+        self._songs_cache: tuple[tuple[object, ...], list[MediaEntry]] | None = None
         self._conn = self._open()
 
     # ------------------------------------------------------------- opening
@@ -359,12 +373,19 @@ class LibraryDatabase:
     @contextmanager
     def _transaction(self) -> Iterator[sqlite3.Connection]:
         with self._lock:
+            before, self._unseen_changes = self._conn.total_changes, 0
             self._conn.execute("BEGIN IMMEDIATE")
             try:
                 yield self._conn
             except BaseException:
                 self._conn.execute("ROLLBACK")
+                self._generation += 1
                 raise
+            finally:
+                # A write that changed anything a list shows makes cached lists out of date (M3). A rescan
+                # that only stamps "last seen" on unchanged files does not, or the cache would never last.
+                if self._conn.total_changes - before > self._unseen_changes:
+                    self._generation += 1
             self._conn.execute("COMMIT")
 
     def _query(self, sql: str, params: Sequence[object] = ()) -> list[sqlite3.Row]:
@@ -434,7 +455,9 @@ class LibraryDatabase:
         with self._transaction() as conn:
             for rec in records:
                 key = path_key(rec.path)
-                row = conn.execute("SELECT id, size, mtime FROM media WHERE path_key = ?", (key,)).fetchone()
+                row = conn.execute(
+                    "SELECT id, size, mtime, folder_id, available FROM media WHERE path_key = ?", (key,)
+                ).fetchone()
                 if row is None:
                     conn.execute(
                         """INSERT INTO media(folder_id, path, path_key, name, size, mtime, added_at,
@@ -461,6 +484,8 @@ class LibraryDatabase:
                         "UPDATE media SET folder_id = ?, scanned_at = ?, available = 1 WHERE id = ?",
                         (rec.folder_id, scanned_at, row["id"]),
                     )
+                    if row["available"] and row["folder_id"] == rec.folder_id:
+                        self._unseen_changes += 1  # only "last seen" moved
                 count += 1
         return count
 
@@ -531,15 +556,24 @@ class LibraryDatabase:
                 return
             conn.execute(
                 """UPDATE media SET probed = 1, duration_ms = ?, width = ?, height = ?, video_codec = ?,
-                   audio_codec = ?, thumbnail = ?, title = ?, artist = ?, album = ?, year = ? WHERE id = ?""",
+                   audio_codec = ?, thumbnail = ?, title = ?, artist = ?, album = ?, year = ?, genre = ?
+                   WHERE id = ?""",
                 (result.duration_ms, result.width, result.height, result.video_codec, result.audio_codec,
-                 result.thumbnail, result.title, result.artist, result.album, result.year, media_id),
+                 result.thumbnail, result.title, result.artist, result.album, result.year, result.genre,
+                 media_id),
             )  # fmt: skip
             conn.execute(_APPLY_TAG_EDITS + " WHERE id = ?", (media_id,))
 
     def media(
-        self, search: str = "", sort: SortOrder = SortOrder.NAME, limit: int = 10_000, offset: int = 0
+        self,
+        search: str = "",
+        sort: SortOrder = SortOrder.NAME,
+        limit: int = 10_000,
+        offset: int = 0,
+        view: str = "all",
     ) -> list[MediaEntry]:
+        """Files in the library. ``view`` (M3): "all", "videos", or videos to "continue" watching, "recent"ly
+        watched or marked as "favourites"; the last three are in the order they were last played."""
         order = {
             SortOrder.NAME: "m.name COLLATE NOCASE, m.path COLLATE NOCASE",
             SortOrder.DATE_ADDED: "m.added_at DESC, m.name COLLATE NOCASE",
@@ -550,6 +584,16 @@ class LibraryDatabase:
             SortOrder.SIZE: "m.size DESC, m.name COLLATE NOCASE",
         }[sort]
         clauses, params = [_NOT_HIDDEN], []
+        if view != "all":
+            clauses.append(f"NOT {_IS_SONG}")
+        if view == "continue":
+            clauses += ["h.finished = 0", "h.position_ms >= 10000"]
+        elif view == "recent":
+            clauses.append("h.last_played_at IS NOT NULL")
+        elif view == "favourites":
+            clauses.append("m.path_key IN (SELECT path_key FROM favourites)")
+        if view in ("continue", "recent"):
+            order = "h.last_played_at DESC, m.name COLLATE NOCASE"
         for term in search.split():
             clauses.append("m.path LIKE ? ESCAPE '\\'")
             params.append(f"%{_escape_like(term)}%")
@@ -619,7 +663,13 @@ class LibraryDatabase:
     def songs(
         self, search: str = "", sort: SongSort = SongSort.TITLE, limit: int = 100_000
     ) -> list[MediaEntry]:
-        """Music in the library. Every word searched for must be in the title, artist, album or name."""
+        """Music in the library. Every word searched for must be in the title, artist, album or name.
+
+        The last answer is kept until anything in the library changes (M3): Songs, Albums, Artists and Genres
+        all start from it, and reading 10,000 songs takes most of a second."""
+        key = (search, sort, limit, self._generation)
+        if self._songs_cache is not None and self._songs_cache[0] == key:
+            return list(self._songs_cache[1])
         clauses, params = [_IS_SONG, _NOT_HIDDEN], []
         for term in search.split():
             clauses.append(
@@ -633,7 +683,9 @@ class LibraryDatabase:
                 WHERE {" AND ".join(clauses)} ORDER BY {_SONG_ORDERS[sort]} LIMIT ?""",
             (*params, limit),
         )
-        return [self._media_entry(r) for r in rows]
+        entries = [self._media_entry(r) for r in rows]
+        self._songs_cache = (key, entries)
+        return list(entries)
 
     # ---------------------------------------------- favourites and automatic lists
     def is_favourite(self, path: str) -> bool:
@@ -707,7 +759,30 @@ class LibraryDatabase:
             title=r["title"],
             artist=r["artist"],
             album=r["album"],
+            genre=r["genre"],
         )
+
+    def search_everything(self, query: str, limit: int = 50) -> list[MediaEntry]:
+        """Songs and videos whose title, artist, album, genre or file name hold every word (M3)."""
+        words = query.split()[:8]
+        if not words:
+            return []
+        clauses, params = [_NOT_HIDDEN, "m.available = 1"], []
+        for word in words:
+            like = f"%{_escape_like(word)}%"
+            clauses.append(
+                "(m.title LIKE ? ESCAPE '\\' OR m.artist LIKE ? ESCAPE '\\' OR m.album LIKE ? ESCAPE '\\'"
+                " OR m.genre LIKE ? ESCAPE '\\' OR m.name LIKE ? ESCAPE '\\')"
+            )
+            params += [like] * 5
+        rows = self._query(
+            f"""SELECT m.*, h.position_ms AS h_position, h.last_played_at AS h_played, 0 AS dups
+                FROM media m LEFT JOIN history h ON h.path_key = m.path_key
+                WHERE {" AND ".join(clauses)}
+                ORDER BY COALESCE(m.title, m.name) COLLATE NOCASE LIMIT ?""",
+            (*params, limit),
+        )
+        return [self._media_entry(r) for r in rows]
 
     def media_by_path(self, path: str) -> MediaEntry | None:
         rows = self._query(
@@ -891,6 +966,21 @@ class LibraryDatabase:
     def remove_playlist_item(self, item_id: int) -> None:
         with self._transaction() as conn:
             conn.execute("DELETE FROM playlist_items WHERE id = ?", (item_id,))
+
+    def reorder_playlist(self, playlist_id: int, item_ids: list[int]) -> None:
+        """Put a playlist's items in this order (M3, after a drag). Items not listed keep their place at the
+        end, and ids from another playlist are ignored, so a stale list can never move or lose anything."""
+        with self._transaction() as conn:
+            current = [
+                r[0]
+                for r in conn.execute(
+                    "SELECT id FROM playlist_items WHERE playlist_id = ? ORDER BY position", (playlist_id,)
+                )
+            ]
+            wanted = [i for i in dict.fromkeys(item_ids) if i in set(current)]
+            ordered = wanted + [i for i in current if i not in set(wanted)]
+            for position, iid in enumerate(ordered):
+                conn.execute("UPDATE playlist_items SET position = ? WHERE id = ?", (position, iid))
 
     def move_playlist_item(self, item_id: int, delta: int) -> None:
         """Move an item up (delta < 0) or down; positions stay contiguous."""

@@ -72,10 +72,21 @@ def test_the_light_theme_changes_the_text_and_button_colours_too() -> None:
     assert THEMES[DEFAULT_THEME].text == theme.TEXT
 
 
-def test_the_default_theme_is_the_original_look() -> None:
+def test_the_default_theme_is_ocean_blue() -> None:
     theme.apply_theme("rose")
     theme.apply_theme(DEFAULT_THEME)
-    assert (theme.BG, theme.BLUE, theme.CYAN) == ("#070B15", "#3B82F6", "#22D3EE")
+    # The design's Ocean Blue #0B6EC7, lightened 13 % so icons on buttons keep 4.5:1 contrast (M3).
+    assert (theme.BG, theme.BLUE, theme.CYAN) == ("#070B15", "#2B81CE", "#22D3EE")
+
+
+def test_the_eight_themes_of_the_design_in_order() -> None:
+    from babarify_frame.core.themes import RETIRED_THEMES
+
+    labels = [p.label for p in THEMES.values()]
+    assert labels == ["Ocean Blue", "Forest Green", "Royal Purple", "Amber Gold", "Teal Breeze", "Rose Pink",
+                      "Classic Dark", "Light"]  # fmt: skip
+    assert RETIRED_THEMES == {"sunset": "amber"}
+    assert Preferences(colour_theme="sunset").normalized().colour_theme == "amber"
 
 
 def test_an_unknown_theme_falls_back_to_the_default() -> None:
