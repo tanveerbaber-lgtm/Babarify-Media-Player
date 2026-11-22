@@ -29,6 +29,10 @@ connections of its own. There are no network streams, no downloads and no automa
 download a newer installer yourself. (*Help → Report a problem* can open the project's issue page in your
 browser when you click it; the report itself is text you copy, and nothing is sent by the app.)
 
+Since 0.12, when you open a file while Babarify is already open, the new start passes the file to the open
+window through a local named pipe and closes. The pipe is private to your Windows account, exists only on
+this PC and carries nothing but the file's path.
+
 Versions 0.9 and 0.10 could play network streams and download a speech model for optional AI subtitles. If
 you used them, *Settings → Privacy → Delete old AI data* removes what they left.
 

@@ -65,6 +65,7 @@ class MockEngine(EngineBase):
         self.default_duration_ms = default_duration_ms
         self.window_id: int | None = None
         self.calls: list[str] = []
+        self.devices: tuple[tuple[str, str], ...] = (("mock-speakers", "Mock speakers"),)  # 0.12
         self.closed_resources = False
         self._pending: MediaInfo | None = None
 
@@ -99,6 +100,9 @@ class MockEngine(EngineBase):
         return {"engine": "mock", "decoder": decoder, "hwdec": "none"}
 
     # ------------------------------------------------------------ hooks
+    def audio_devices(self) -> tuple[tuple[str, str], ...]:
+        return self.devices
+
     def _do_initialize(self) -> None:
         self.calls.append("initialize")
 

@@ -154,3 +154,33 @@ def test_resume_is_accurate_across_app_restarts(qtbot: QtBot, tmp_path: Path, ta
     print(f"resume {target_s}s: saved {saved.position_ms} ms, first real {first} ms, error {error:+d} ms")
     assert -RESUME_TOLERANCE_MS <= error <= RESUME_TOLERANCE_MS
     win.close()
+
+
+@pytest.mark.parametrize(
+    ("suffix", "track", "disc"),
+    [(".mp3", "3/12", "2/2"), (".flac", "07", "1"), (".m4a", "5/9", "1/1")],
+)
+def test_probe_reads_track_disc_and_album_artist(
+    probe: Any, tmp_path: Path, suffix: str, track: str, disc: str
+) -> None:
+    """0.12: what albums are put in order by, read by the real engine from real tags."""
+    import shutil
+    import subprocess
+
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        pytest.skip("ffmpeg is needed to write tagged test songs")
+    song = tmp_path / f"song{suffix}"
+    subprocess.run(
+        [ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=duration=2",
+         "-metadata", "title=Tagged", "-metadata", f"track={track}", "-metadata", f"disc={disc}",
+         "-metadata", "album_artist=Radio Mix", "-metadata", "album=Hits", str(song)],
+        check=True, timeout=60,
+    )  # fmt: skip
+    result = probe.probe(str(song), threading.Event())
+    assert result is not None
+    assert (result.track_no, result.disc_no, result.album_artist) == (
+        int(track.split("/")[0]),
+        int(disc.split("/")[0]),
+        "Radio Mix",
+    )

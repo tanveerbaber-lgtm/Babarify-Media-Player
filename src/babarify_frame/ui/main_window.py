@@ -55,7 +55,7 @@ from PySide6.QtWidgets import (
 from babarify_frame import PRODUCT_NAME, TAGLINE, __version__
 from babarify_frame.configuration.preferences import Preferences, PreferencesStore, WindowGeometry
 from babarify_frame.core.enhancements import EqualizerSettings
-from babarify_frame.core.models import SUBTITLE_EXTENSIONS, MediaInfo, PlaybackState
+from babarify_frame.core.models import MEDIA_EXTENSIONS, SUBTITLE_EXTENSIONS, MediaInfo, PlaybackState
 from babarify_frame.core.music import SLEEP_MINUTES, STYLE_LABELS, VisualStyle
 from babarify_frame.core.themes import THEMES
 from babarify_frame.library import backup, legacy_ai
@@ -81,10 +81,8 @@ from babarify_frame.ui.report import ReportDialog
 from babarify_frame.ui.subtitles import SUBTITLE_FILTER
 from babarify_frame.ui.widgets import format_time, glyph_icon, set_topmost
 
-MEDIA_FILTER = (
-    "Media files (*.mp4 *.m4v *.mkv *.mov *.avi *.wmv *.webm *.ts *.mts *.m2ts *.mpg *.mpeg *.vob "
-    "*.ogv *.flv *.3gp *.mp3 *.m4a *.aac *.flac *.wav *.ogg *.opus *.wma *.ac3);;All files (*)"
-)
+# The same types the library scans, so the Open dialog and the library always agree.
+MEDIA_FILTER = f"Media files ({' '.join('*' + ext for ext in sorted(MEDIA_EXTENSIONS))});;All files (*)"
 MIN_SIZE = QSize(560, 400)
 DEFAULT_SIZE = QSize(1180, 740)
 
@@ -482,6 +480,7 @@ class MainWindow(QMainWindow):
             self.library.refresh_current_tab()  # the tab on show may be Songs, Albums... (M3)
         elif page is self.settings:
             self._refresh_old_ai_data()
+            self.settings.set_audio_devices(self.player.audio_devices())  # headphones come and go
         self._update_actions()
 
     def _update_actions(self) -> None:
@@ -533,6 +532,17 @@ class MainWindow(QMainWindow):
         if not self.player.engine_is_ready:
             return
         path, _ = QFileDialog.getOpenFileName(self, "Open media", "", MEDIA_FILTER)
+        if path:
+            self.open_path(path)
+
+    def open_from_another_start(self, path: str) -> None:
+        """A second start of the app handed over its file (0.12): come to the front and play it."""
+        if self.mini.isVisible():
+            self.leave_mini_player()
+        if self.isMinimized():
+            self.showNormal()
+        self.raise_()
+        self.activateWindow()
         if path:
             self.open_path(path)
 
@@ -792,6 +802,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"{name} — {PRODUCT_NAME}" if name else PRODUCT_NAME)
 
     def _on_engine_ready(self, ok: bool) -> None:
+        self.settings.set_audio_devices(self.player.audio_devices())
         # Songs waiting to be read, like an existing library's after an update, need no rescan.
         if ok and self.library_service.db.counts()[2]:
             self.library_service.fetch_metadata()

@@ -107,6 +107,20 @@ First Android version, for Android 10 or later. Built and tested, never publishe
 A feasibility prototype only, with no version planned yet
 ([M14 report](docs/milestones/M14/acceptance-report.md)).
 
+## Windows (next version, not released)
+
+- Fixed: albums play in their own order, by disc and track number, instead of alphabetically. Songs are read
+  once more, in the background, for their track and disc numbers and album artist.
+- New: an album shows its album artist, so a compilation is listed under the name on its cover.
+- New: Settings → Playback → Sound output: play through headphones or speakers without changing Windows'
+  default. If the chosen device is unplugged, sound goes to the Windows default until it's back.
+- New: Settings → Playback → Volume levelling (off by default): songs play at a steadier loudness, by song or
+  by album, using the ReplayGain tags in MP3, Ogg and Opus files. Videos are never changed.
+- Changed: opening a file while Babarify is open plays it in the open window, instead of starting a second
+  copy of the app.
+- New: the library and the Open dialog include AIFF, WavPack, TTA and CAF audio, and ASF, DivX, F4V and
+  RealMedia video. The Open dialog also lists MKA files, which it was missing.
+
 ## Windows 0.11.0 (2026-11-22, public beta)
 
 Release notes: [0.11.0](docs/release-notes/0.11.0.md).

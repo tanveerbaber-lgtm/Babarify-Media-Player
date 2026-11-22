@@ -22,6 +22,8 @@ linked issue if you have new information.
 | Library | Adding a folder of 20,000 new files takes several minutes (about 6.5 measured); the app stays usable meanwhile | Add large collections one folder at a time | 0.11 |
 | Library | With 10,000 videos, opening the Videos page takes about a second | — | 0.11 |
 | Mini player | The mini player shows the title and controls, not the song's picture | — | 0.11 |
+| Sound | Volume levelling reads ReplayGain tags from MP3, Ogg and Opus files only; the engine ignores them in FLAC and M4A files, which are turned down 7 dB like untagged songs | — | 0.12 |
+| Library | APE, Musepack and DSD files aren't added to the library (they couldn't be tested); open them with File → Open | File → Open | 0.12 |
 | Music | The animation for songs with no picture uses about 5 % of the processor while it's on screen (0.2 % with the window minimised or on another page) | Minimise the window, or switch off animations in Windows (Settings → Accessibility → Visual effects) | 0.10.0 |
 | Sleep | The app has no special handling for sleep and wake; playing through sleep and wake is checked by hand before each release | — | 0.11 |
 | Library | Edited details and covers are kept by the app, not written into the files, so other apps don't see them | — | 0.10.0 |

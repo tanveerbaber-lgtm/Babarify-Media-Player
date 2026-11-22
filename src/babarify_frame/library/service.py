@@ -243,6 +243,9 @@ class LibraryService:
             result.album,
             result.year,
             result.genre,
+            result.track_no,
+            result.disc_no,
+            result.album_artist,
         )
 
     def set_cover_from_file(self, path: str, picture: str) -> bool:

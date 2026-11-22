@@ -61,6 +61,9 @@ class MediaEntry:
     artist: str | None = None
     album: str | None = None
     genre: str | None = None
+    track_no: int | None = None  # 0.12
+    disc_no: int | None = None
+    album_artist: str | None = None
 
     @property
     def display_title(self) -> str:

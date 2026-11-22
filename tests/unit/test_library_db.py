@@ -38,7 +38,7 @@ def scan(db: LibraryDatabase, folder_path: Path, cancel: threading.Event | None 
 # ------------------------------------------------------------ migrations
 def test_fresh_database_has_current_schema(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.db")
-    assert db.schema_version == SCHEMA_VERSION == 8
+    assert db.schema_version == SCHEMA_VERSION == 9
     assert db.recovered is None and db.read_only_reason is None
     db.close()
 
@@ -53,7 +53,7 @@ def test_version_1_database_migrates_and_keeps_data(tmp_path: Path) -> None:
     )
     conn.close()
     db = LibraryDatabase(path)
-    assert db.schema_version == 8
+    assert db.schema_version == 9
     row = db._query("SELECT position_ms, play_count FROM history WHERE path_key = 'k'")[0]
     assert (row[0], row[1]) == (42000, 3)
     assert db.playlists() == []  # the v2 tables exist
@@ -497,3 +497,18 @@ def test_an_older_library_is_copied_before_it_is_migrated(tmp_path: Path) -> Non
 def test_a_new_library_gets_no_copy(tmp_path: Path) -> None:
     LibraryDatabase(tmp_path / "library.db").close()
     assert list(tmp_path.glob("library.before-*")) == []
+
+
+def test_the_scanner_finds_the_added_file_types_and_skips_others(tmp_path: Path) -> None:
+    """0.12: types each played through the bundled engine; the Open dialog offers the same list."""
+    import threading
+
+    from babarify_frame.library.scanner import walk_media
+    from babarify_frame.ui.main_window import MEDIA_FILTER
+
+    names = ["a.wv", "b.aiff", "c.tta", "d.rmvb", "e.divx", "f.asf", "notes.txt", "cover.jpg", "raw.m2v"]
+    for name in names:
+        (tmp_path / name).write_bytes(b"x")
+    found = sorted(e.name for e in walk_media(str(tmp_path), threading.Event()))
+    assert found == ["a.wv", "b.aiff", "c.tta", "d.rmvb", "e.divx", "f.asf"]
+    assert all(f"*{n[n.index('.') :]}" in MEDIA_FILTER for n in found)

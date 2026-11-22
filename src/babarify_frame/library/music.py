@@ -66,6 +66,15 @@ def _album_key(song: MediaEntry) -> str:
     return f"{song.album.casefold()}|{os.path.dirname(song.path).casefold()}"
 
 
+def _by_title(song: MediaEntry) -> str:
+    return song.display_title.casefold()
+
+
+def album_order(song: MediaEntry) -> tuple[bool, int, int, str]:
+    """Disc, then track, as the album was made; songs with no track number follow, by title (0.12)."""
+    return (song.track_no is None, song.disc_no or 1, song.track_no or 0, song.display_title.casefold())
+
+
 def group_songs(songs: list[MediaEntry], kind: GroupKind) -> list[SongGroup]:
     """Albums, artists or genres, sorted by name, with the unknown group last."""
     gathered: dict[str, list[MediaEntry]] = {}
@@ -82,14 +91,18 @@ def group_songs(songs: list[MediaEntry], kind: GroupKind) -> list[SongGroup]:
         first = members[0]
         if kind is GroupKind.ALBUM:
             title = first.album or UNKNOWN_ALBUM
+            album_artists = {(song.album_artist or "").strip().casefold() for song in members}
             artists = {(song.artist or "").casefold() for song in members}
-            artist = (first.artist or UNKNOWN_ARTIST) if len(artists) == 1 else VARIOUS_ARTISTS
+            if len(album_artists) == 1 and first.album_artist and first.album_artist.strip():
+                artist = first.album_artist.strip()  # the tag says whose album it is
+            else:
+                artist = (first.artist or UNKNOWN_ARTIST) if len(artists) == 1 else VARIOUS_ARTISTS
         elif kind is GroupKind.GENRE:
             title = (first.genre or "").strip() or UNKNOWN_GENRE
             artist = ""
         else:
             title = first.artist or UNKNOWN_ARTIST
             artist = ""
-        ordered = tuple(sorted(members, key=lambda s: s.display_title.casefold()))
+        ordered = tuple(sorted(members, key=album_order if kind is GroupKind.ALBUM else _by_title))
         groups.append(SongGroup(kind, key, title, artist, ordered))
     return sorted(groups, key=lambda g: (not g.key, g.title.casefold()))

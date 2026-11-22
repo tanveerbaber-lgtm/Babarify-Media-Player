@@ -167,6 +167,16 @@ MIGRATIONS: tuple[tuple[str, ...], ...] = (
             OR lower(name) LIKE '%.opus' OR lower(name) LIKE '%.wma' OR lower(name) LIKE '%.ac3'
             OR lower(name) LIKE '%.mka'""",
     ),
+    (  # 9 (0.12): track and disc numbers and album artist, so albums play in order. Songs are read again.
+        "ALTER TABLE media ADD COLUMN track_no INTEGER",
+        "ALTER TABLE media ADD COLUMN disc_no INTEGER",
+        "ALTER TABLE media ADD COLUMN album_artist TEXT",
+        """UPDATE media SET probed = 0 WHERE (video_codec IS NULL AND audio_codec IS NOT NULL)
+            OR lower(name) LIKE '%.mp3' OR lower(name) LIKE '%.m4a' OR lower(name) LIKE '%.aac'
+            OR lower(name) LIKE '%.flac' OR lower(name) LIKE '%.wav' OR lower(name) LIKE '%.ogg'
+            OR lower(name) LIKE '%.opus' OR lower(name) LIKE '%.wma' OR lower(name) LIKE '%.ac3'
+            OR lower(name) LIKE '%.mka'""",
+    ),
 )
 SCHEMA_VERSION = len(MIGRATIONS)
 _NOT_HIDDEN = "m.path_key NOT IN (SELECT path_key FROM hidden_media)"
@@ -212,7 +222,8 @@ _SONG_PATH = (
 _SONG_ORDERS = {
     SongSort.TITLE: "COALESCE(m.title, m.name) COLLATE NOCASE, m.path COLLATE NOCASE",
     SongSort.ARTIST: "m.artist IS NULL, m.artist COLLATE NOCASE, COALESCE(m.title, m.name) COLLATE NOCASE",
-    SongSort.ALBUM: "m.album IS NULL, m.album COLLATE NOCASE, COALESCE(m.title, m.name) COLLATE NOCASE",
+    SongSort.ALBUM: "m.album IS NULL, m.album COLLATE NOCASE, m.track_no IS NULL, COALESCE(m.disc_no, 1),"
+    " m.track_no, COALESCE(m.title, m.name) COLLATE NOCASE",  # as music.album_order
     SongSort.RECENTLY_ADDED: "m.added_at DESC, COALESCE(m.title, m.name) COLLATE NOCASE",
     SongSort.OLDEST_ADDED: "m.added_at, COALESCE(m.title, m.name) COLLATE NOCASE",
     SongSort.MOST_PLAYED: "COALESCE(h.play_count, 0) DESC, COALESCE(m.title, m.name) COLLATE NOCASE",
@@ -251,6 +262,9 @@ class ProbeRecord:
     album: str | None = None
     year: int | None = None
     genre: str | None = None
+    track_no: int | None = None
+    disc_no: int | None = None
+    album_artist: str | None = None
 
 
 def default_database_path() -> Path:
@@ -585,11 +599,12 @@ class LibraryDatabase:
                 return
             conn.execute(
                 """UPDATE media SET probed = 1, duration_ms = ?, width = ?, height = ?, video_codec = ?,
-                   audio_codec = ?, thumbnail = ?, title = ?, artist = ?, album = ?, year = ?, genre = ?
+                   audio_codec = ?, thumbnail = ?, title = ?, artist = ?, album = ?, year = ?, genre = ?,
+                   track_no = ?, disc_no = ?, album_artist = ?
                    WHERE id = ?""",
                 (result.duration_ms, result.width, result.height, result.video_codec, result.audio_codec,
                  result.thumbnail, result.title, result.artist, result.album, result.year, result.genre,
-                 media_id),
+                 result.track_no, result.disc_no, result.album_artist, media_id),
             )  # fmt: skip
             conn.execute(_APPLY_TAG_EDITS + " WHERE id = ?", (media_id,))
 
@@ -789,6 +804,9 @@ class LibraryDatabase:
             artist=r["artist"],
             album=r["album"],
             genre=r["genre"],
+            track_no=r["track_no"],
+            disc_no=r["disc_no"],
+            album_artist=r["album_artist"],
         )
 
     def search_everything(self, query: str, limit: int = 50) -> list[MediaEntry]:
