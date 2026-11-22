@@ -6,7 +6,7 @@ import gzip
 import threading
 import time
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -18,8 +18,13 @@ from netserver import LocalServer
 
 
 def guide_now() -> bytes:
-    start = datetime.now(UTC).strftime("%Y%m%d%H0000 +0000")
-    programme = f'<programme start="{start}" channel="one"><title>Now on One</title></programme>'
+    """A programme on air whenever the test runs: from an hour ago to an hour from now."""
+    now = datetime.now(UTC)
+    start = (now - timedelta(hours=1)).strftime("%Y%m%d%H%M%S +0000")
+    stop = (now + timedelta(hours=1)).strftime("%Y%m%d%H%M%S +0000")
+    programme = (
+        f'<programme start="{start}" stop="{stop}" channel="one"><title>Now on One</title></programme>'
+    )
     return f"<tv>{programme}</tv>".encode()
 
 
