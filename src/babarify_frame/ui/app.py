@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -18,7 +19,7 @@ from babarify_frame.library.service import LibraryService, default_thumbnail_dir
 from babarify_frame.playback.factory import EngineFactory, default_factory
 from babarify_frame.playback.media_probe import MediaProbe
 from babarify_frame.playback.preview import FramePreview
-from babarify_frame.ui import hover_lift
+from babarify_frame.ui import hover_lift, single_instance
 from babarify_frame.ui.main_window import MainWindow
 from babarify_frame.ui.theme import FONT_BODY, FONT_FAMILY, STYLESHEET
 
@@ -98,6 +99,13 @@ def main(argv: Sequence[str] | None = None, factory: EngineFactory | None = None
     icon = load_icon()
     app.setWindowIcon(icon)
 
+    # One running copy (0.12): a later start gives its file to the open window and ends here. A smoke test
+    # (release checks) always runs on its own, so it can never take over someone's open player.
+    single = args.smoke_test is None
+    if single and single_instance.hand_over(os.path.abspath(args.file) if args.file else None):
+        logging.getLogger(__name__).info("handed over to the running copy")
+        return 0
+
     preview = libvlc_preview if args.engine == "libvlc" else None  # previews need libVLC (M8)
     window = MainWindow(
         factory, icon, engine_name=args.engine, library=create_library(), preview_factory=preview
@@ -106,6 +114,10 @@ def main(argv: Sequence[str] | None = None, factory: EngineFactory | None = None
     window.start_engine()
     if args.file:
         window.open_path(args.file)
+    if single:
+        server = single_instance.InstanceServer(app)
+        if server.listen():
+            server.open_requested.connect(window.open_from_another_start)
 
     if args.smoke_test is not None:
 

@@ -291,6 +291,10 @@ class PlayerPage(QWidget):
     def state(self) -> PlaybackState:
         return self._state
 
+    def audio_devices(self) -> tuple[tuple[str, str], ...]:
+        """Sound outputs connected now (0.12); none until the engine runs."""
+        return self._controller.engine.audio_devices() if self.engine_is_ready else ()
+
     @property
     def engine_is_ready(self) -> bool:
         return self._controller.engine_name is not None
@@ -312,6 +316,8 @@ class PlayerPage(QWidget):
             subtitle_style=self._prefs.subtitle_style,
             video_transform=self._transform,
             audio_effect=self._prefs.audio_effect,
+            audio_device=self._prefs.audio_device,
+            volume_levelling=self._prefs.volume_levelling,
         )
 
         started = time.monotonic()
@@ -950,6 +956,8 @@ class PlayerPage(QWidget):
         restart = self.engine_is_ready and (
             prefs.hardware_decoding != self._prefs.hardware_decoding
             or prefs.audio_effect != self._prefs.audio_effect
+            or prefs.audio_device != self._prefs.audio_device
+            or prefs.volume_levelling != self._prefs.volume_levelling
             or (style_changed and self._controller.capabilities().subtitle_style == "restart")
         )
         previews_changed = prefs.seek_previews != self._prefs.seek_previews

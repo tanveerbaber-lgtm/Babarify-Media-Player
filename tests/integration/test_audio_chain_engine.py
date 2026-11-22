@@ -145,3 +145,71 @@ def test_room_effect_is_applied(run: Any) -> None:
     capture.mark("room")
     # The room effect changes the signal; in 0.10 the effect never loaded and the level was identical.
     assert abs(capture.peak("room") - plain.peak("plain")) > 0.05
+
+
+# ---------------------------------------------------------------- volume levelling and output (0.12)
+def _ffmpeg(tmp: Path, name: str, *args: str) -> Path:
+    import shutil
+    import subprocess
+
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        pytest.skip("ffmpeg is needed to make tagged test files")
+    path = tmp / name
+    subprocess.run(
+        [ffmpeg, "-hide_banner", "-loglevel", "error", "-y", *args, str(path)], check=True, timeout=120
+    )
+    return path
+
+
+def _level(path: Path, levelling: str) -> tuple[float, str]:
+    engine = default_factory().create("libvlc", EngineOptions(volume_levelling=levelling))
+    try:
+        capture = Capture()
+        capture.install(engine._player, engine._vlc)
+        engine.open_media(str(path))
+        deadline = time.monotonic() + 10
+        while engine.get_playback_state().state is not S.PLAYING and time.monotonic() < deadline:
+            time.sleep(0.05)
+        engine.set_volume(100)
+        capture.mark("level")
+        return capture.peak("level"), engine.levelling_applied
+    finally:
+        engine.close()
+
+
+def test_volume_levelling_follows_a_songs_tag_and_leaves_videos_alone(tmp_path: Path) -> None:
+    tone = ["-f", "lavfi", "-i", "sine=frequency=440:duration=6,volume=0.5", "-ac", "2", "-ar", "48000"]
+    song = _ffmpeg(tmp_path, "tagged.mp3", *tone, "-metadata", "REPLAYGAIN_TRACK_GAIN=-12.00 dB")
+    video = _ffmpeg(
+        tmp_path, "film.mkv", "-f", "lavfi", "-i", "testsrc=duration=6:size=160x120:rate=25", *tone,
+        "-c:v", "libx264", "-c:a", "aac", "-shortest",
+    )  # fmt: skip
+    song_off, applied_off = _level(song, "off")
+    song_on, applied_song = _level(song, "track")
+    video_off, _ = _level(video, "off")
+    video_on, applied_video = _level(video, "track")
+    assert (applied_off, applied_song, applied_video) == ("none", "track", "none")
+    assert song_on == pytest.approx(song_off / 4, rel=0.25)  # -12 dB, as its tag says
+    assert video_on == pytest.approx(video_off, rel=0.15)  # never turned down (-7 dB would be -55 %)
+
+
+def test_the_chosen_output_device_is_used_while_connected() -> None:
+    engine = default_factory().create("libvlc", EngineOptions())
+    try:
+        devices = engine.audio_devices()
+    finally:
+        engine.close()
+    if not devices:
+        pytest.skip("no sound outputs on this PC")
+    chosen = devices[-1][0]
+    engine = default_factory().create("libvlc", EngineOptions(audio_device=chosen))
+    try:
+        assert engine._player.audio_output_device_get() == chosen
+    finally:
+        engine.close()
+    missing = default_factory().create("libvlc", EngineOptions(audio_device="{not-connected}"))
+    try:  # an unplugged device is never asked for: Windows' default plays instead
+        assert missing._player.audio_output_device_get() != "{not-connected}"
+    finally:
+        missing.close()

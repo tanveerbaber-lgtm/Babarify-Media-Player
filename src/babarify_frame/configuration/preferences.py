@@ -87,6 +87,11 @@ def language_matches(preferred: str, track_language: str | None) -> bool:
     return lang == preferred or lang in LANGUAGE_ALIASES.get(preferred, set())
 
 
+# Volume levelling (0.12): libVLC's ReplayGain. "By song" evens out loudness between songs; "By album" keeps
+# an album's own quiet and loud songs as they were mixed.
+VOLUME_LEVELLING = {"off": "Off", "track": "By song", "album": "By album"}
+
+
 @dataclass(frozen=True)
 class WindowGeometry:
     x: int
@@ -110,6 +115,8 @@ class Preferences:
     seek_step_s: int = 10  # one of SEEK_STEPS_S
     fade_seconds: int = 0  # between songs in a list; one of FADE_CHOICES_S
     audio_effect: str = "none"  # a key of AUDIO_EFFECTS
+    audio_device: str = ""  # 0.12: the sound output's id; "" = the Windows default
+    volume_levelling: str = "off"  # 0.12: a key of VOLUME_LEVELLING, for songs only
     controls_hide_delay_ms: int = 3000  # fullscreen auto-hide, 1000..10000 (whole seconds in the UI)
     start_fullscreen: bool = False
     autoplay_next_video: bool = False  # when a video ends with no queue, play the next one in its folder
@@ -203,6 +210,8 @@ class Preferences:
             seek_step_s=self.seek_step_s if self.seek_step_s in SEEK_STEPS_S else 10,
             fade_seconds=self.fade_seconds if self.fade_seconds in FADE_CHOICES_S else 0,
             audio_effect=self.audio_effect if self.audio_effect in AUDIO_EFFECTS else "none",
+            audio_device=self.audio_device if len(self.audio_device) <= 512 else "",
+            volume_levelling=self.volume_levelling if self.volume_levelling in VOLUME_LEVELLING else "off",
             controls_hide_delay_ms=max(1000, min(10_000, self.controls_hide_delay_ms)),
             preferred_audio_language=_language(self.preferred_audio_language),
             preferred_subtitle_language=_language(self.preferred_subtitle_language),

@@ -60,6 +60,12 @@ def thumbnail_size(source_w: int, source_h: int, parsed_w: int, parsed_h: int) -
     return out_w, out_h
 
 
+def _number(text: str | None) -> int | None:
+    """A track or disc number, which tags can write as "3", "03" or "3/12"."""
+    found = re.match(r"\s*(\d{1,4})", text or "")
+    return int(found.group(1)) or None if found else None
+
+
 def _year(date: str | None) -> int | None:
     """The year in a date tag, which can be "1999" or "1999-05-01"."""
     found = re.search(r"\b[12]\d{3}\b", date or "")
@@ -107,6 +113,9 @@ class LibVlcProbe(MediaProbe):
                 album=self._tag(media, vlc.Meta.Album, path),
                 year=_year(self._tag(media, vlc.Meta.Date, path)),
                 genre=self._tag(media, vlc.Meta.Genre, path),
+                track_no=_number(media.get_meta(vlc.Meta.TrackNumber)),
+                disc_no=_number(media.get_meta(vlc.Meta.DiscNumber)),
+                album_artist=self._tag(media, vlc.Meta.AlbumArtist, path),
             )
             # A song's cover can look like a video track, so the file's name counts too.
             if named_audio or (video is None and tracks):
@@ -211,6 +220,9 @@ class LibVlcProbe(MediaProbe):
             album=result.album,
             year=result.year,
             genre=result.genre,
+            track_no=result.track_no,
+            disc_no=result.disc_no,
+            album_artist=result.album_artist,
             thumbnail=bytes(state["buf"]),
             thumbnail_width=state["w"],
             thumbnail_height=state["h"],

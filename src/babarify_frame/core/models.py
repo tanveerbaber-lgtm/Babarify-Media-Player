@@ -134,11 +134,16 @@ VIDEO_EXTENSIONS = frozenset(
     {
         ".mp4", ".m4v", ".mkv", ".mov", ".avi", ".wmv", ".webm", ".ts", ".mts", ".m2ts",
         ".mpg", ".mpeg", ".vob", ".ogv", ".flv", ".3gp",
+        # 0.12: each played through the bundled engine first (.rmvb shares .rm's container).
+        ".asf", ".divx", ".f4v", ".rm", ".rmvb",
     }
 )  # fmt: skip
 AUDIO_EXTENSIONS = frozenset(
-    {".mp3", ".m4a", ".aac", ".flac", ".wav", ".ogg", ".opus", ".wma", ".ac3", ".mka"}
-)
+    {
+        ".mp3", ".m4a", ".aac", ".flac", ".wav", ".ogg", ".opus", ".wma", ".ac3", ".mka",
+        ".aiff", ".aif", ".wv", ".tta", ".caf",  # 0.12, checked like the video types above
+    }
+)  # fmt: skip
 MEDIA_EXTENSIONS = VIDEO_EXTENSIONS | AUDIO_EXTENSIONS
 SUBTITLE_EXTENSIONS = frozenset({".srt", ".ass", ".ssa", ".vtt", ".sub", ".smi", ".sami", ".txt", ".idx"})
 _COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
@@ -203,6 +208,8 @@ class EngineOptions:
     subtitle_style: SubtitleStyle = field(default_factory=SubtitleStyle)
     video_transform: VideoTransform = VideoTransform.NONE  # rotation/flip (M7)
     audio_effect: str = "none"  # a key of core.music.AUDIO_EFFECTS
+    audio_device: str = ""  # 0.12: an id from audio_devices(); "" = the Windows default
+    volume_levelling: str = "off"  # 0.12: "off", "track" or "album" (ReplayGain), for songs only
 
 
 @dataclass(frozen=True)

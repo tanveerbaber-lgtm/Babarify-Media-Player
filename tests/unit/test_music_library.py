@@ -47,6 +47,7 @@ def add(db: LibraryDatabase, folder_id: int, name: str, **tags: object) -> str:
             tags.pop("title", None),  # type: ignore[arg-type]
             tags.pop("artist", None),  # type: ignore[arg-type]
             tags.pop("album", None),  # type: ignore[arg-type]
+            **tags,  # type: ignore[arg-type]  # year, genre, track_no, disc_no, album_artist
         ),
     )
     return path
@@ -405,3 +406,50 @@ def test_a_rescan_of_unchanged_files_keeps_the_song_list(tmp_path: Path) -> None
     assert db._generation > generation and [s.available for s in db.songs()] == [False]
     db.upsert_media([ScanRecord(entry.path, folder, 100, 1.0, None)], time.time() + 2)  # and back
     assert [s.display_title for s in db.songs()] == ["Blue Train"]
+
+
+def test_an_album_plays_in_disc_and_track_order(tmp_path: Path) -> None:
+    """0.12: albums played alphabetically before; every music player plays them as they were made."""
+    db, folder = library(tmp_path)
+    add(db, folder, "z.mp3", title="Zebra", album="Live", artist="Band", track_no=1, disc_no=1)
+    add(db, folder, "a.mp3", title="Apple", album="Live", artist="Band", track_no=2, disc_no=1)
+    add(db, folder, "m.mp3", title="Mango", album="Live", artist="Band", track_no=1, disc_no=2)
+    add(db, folder, "b.mp3", title="Bonus", album="Live", artist="Band")  # no number: after the rest
+    (album,) = group_songs(db.songs(), GroupKind.ALBUM)
+    assert [s.display_title for s in album.songs] == ["Zebra", "Apple", "Mango", "Bonus"]
+    by_album = [s.display_title for s in db.songs(sort=SongSort.ALBUM)]
+    assert by_album == ["Zebra", "Apple", "Mango", "Bonus"]  # the Songs tab's Album sort agrees
+    assert [s.display_title for s in group_songs(db.songs(), GroupKind.ARTIST)[0].songs] == [
+        "Apple",
+        "Bonus",
+        "Mango",
+        "Zebra",
+    ]  # an artist's songs stay alphabetical
+
+
+def test_an_album_artist_names_a_compilation(tmp_path: Path) -> None:
+    db, folder = library(tmp_path)
+    add(db, folder, "1.mp3", title="One", album="Hits", artist="Aki", album_artist="Radio Mix")
+    add(db, folder, "2.mp3", title="Two", album="Hits", artist="Ben", album_artist="Radio Mix")
+    add(db, folder, "3.mp3", title="Three", album="Other", artist="Aki")
+    add(db, folder, "4.mp3", title="Four", album="Other", artist="Ben")
+    albums = {g.title: g.artist for g in group_songs(db.songs(), GroupKind.ALBUM)}
+    assert albums == {"Hits": "Radio Mix", "Other": VARIOUS_ARTISTS}
+    assert [a.title for a in group_songs(db.songs(), GroupKind.ARTIST)] == ["Aki", "Ben"]  # by who sings
+
+
+def test_songs_are_read_again_for_track_numbers_after_the_update(tmp_path: Path) -> None:
+    path = tmp_path / "library.db"
+    conn = sqlite3.connect(str(path), isolation_level=None)
+    LibraryDatabase._migrate(conn, 8)
+    conn.execute("INSERT INTO folders(path, path_key, added_at) VALUES ('C:/M', 'c:/m', 1)")
+    for name, video in (("a.mp3", None), ("film.mkv", "h264")):
+        conn.execute(
+            "INSERT INTO media(folder_id, path, path_key, name, size, mtime, added_at, scanned_at, probed,"
+            " video_codec, audio_codec) VALUES (1, ?, ?, ?, 1, 1, 1, 1, 1, ?, 'aac')",
+            (f"C:/M/{name}", f"c:/m/{name}", name, video),
+        )
+    conn.close()
+    db = LibraryDatabase(path)
+    assert [p for _i, p in db.media_to_probe(10)] == ["C:/M/a.mp3"]  # songs only; videos keep their details
+    db.close()

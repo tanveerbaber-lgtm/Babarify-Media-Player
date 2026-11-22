@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from babarify_frame.configuration.preferences import LANGUAGES, SEEK_STEPS_S, Preferences
+from babarify_frame.configuration.preferences import LANGUAGES, SEEK_STEPS_S, VOLUME_LEVELLING, Preferences
 from babarify_frame.core.models import SubtitlePosition, SubtitleStyle
 from babarify_frame.core.music import AUDIO_EFFECT_LABELS, FADE_CHOICES_S, STYLE_LABELS
 from babarify_frame.core.themes import THEMES, Palette
@@ -115,6 +115,7 @@ class SettingsPage(QWidget):
         self.setObjectName("page")
         self._prefs = prefs
         self._loading = False
+        self._devices: tuple[tuple[str, str], ...] = ()  # sound outputs, from the engine once it runs
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -189,12 +190,25 @@ class SettingsPage(QWidget):
             self.audio_effect.addItem(label, key)
         self.audio_effect.setAccessibleName("Sound effect")
         self.audio_effect.setToolTip("Room adds a sense of space; wider stereo spreads the sound")
+        self.audio_device = QComboBox()
+        self.audio_device.setAccessibleName("Sound output")
+        self.audio_device.setToolTip("Where sound plays. Unplugged devices fall back to the Windows default")
+        self.volume_levelling = QComboBox()
+        for key, label in VOLUME_LEVELLING.items():
+            self.volume_levelling.addItem(label, key)
+        self.volume_levelling.setAccessibleName("Volume levelling")
+        self.volume_levelling.setToolTip(
+            "Plays songs at a steadier loudness, using the ReplayGain tags in MP3, Ogg and Opus files. "
+            "Songs without them are turned down a little to match. Videos are never changed"
+        )
         playback = self._card(
             "Playback",
             [
                 ("Seek step (← →)", self.seek_step),
                 ("Fade between songs", self.fade),
                 ("Sound effect", self.audio_effect),
+                ("Sound output", self.audio_device),
+                ("Volume levelling", self.volume_levelling),
                 ("Hardware decoding", self.hardware_decoding),
                 ("", self.remember_volume),
                 ("", self.allow_boost),
@@ -343,6 +357,8 @@ class SettingsPage(QWidget):
         self.seek_step.currentIndexChanged.connect(self._changed)
         self.fade.currentIndexChanged.connect(self._changed)
         self.audio_effect.currentIndexChanged.connect(self._changed)
+        self.audio_device.currentIndexChanged.connect(self._changed)
+        self.volume_levelling.currentIndexChanged.connect(self._changed)
         self.remember_volume.toggled.connect(self._changed)
         self.allow_boost.toggled.connect(self._changed)
         self.seek_previews.toggled.connect(self._changed)
@@ -366,6 +382,30 @@ class SettingsPage(QWidget):
         ):
             combo.currentIndexChanged.connect(self._changed)
         self.subtitle_size.valueChanged.connect(self._changed)
+
+    def set_audio_devices(self, devices: tuple[tuple[str, str], ...]) -> None:
+        """The sound outputs connected now, from the engine (0.12)."""
+        self._devices = devices
+        loading, self._loading = self._loading, True
+        try:
+            self._fill_audio_devices(devices, self._prefs.audio_device)
+        finally:
+            self._loading = loading
+
+    def _fill_audio_devices(self, devices: tuple[tuple[str, str], ...], chosen: str) -> None:
+        combo = self.audio_device
+        combo.blockSignals(True)
+        try:
+            combo.clear()
+            combo.addItem("Windows default", "")
+            for device, name in devices:
+                combo.addItem(name, device)
+            if chosen and combo.findData(chosen) < 0:
+                # Keep the choice while its device is unplugged; it is used again when it comes back.
+                combo.addItem("Chosen device (not connected)", chosen)
+            combo.setCurrentIndex(max(0, combo.findData(chosen)))
+        finally:
+            combo.blockSignals(False)
 
     def set_old_ai_data(self, size_bytes: int) -> None:
         """Data left by the AI feature of earlier versions; the button shows only while there is some."""
@@ -414,6 +454,8 @@ class SettingsPage(QWidget):
         self.seek_step.setCurrentIndex(max(0, SEEK_STEPS_S.index(prefs.seek_step_s)))
         self.fade.setCurrentIndex(max(0, self.fade.findData(prefs.fade_seconds)))
         self.audio_effect.setCurrentIndex(max(0, self.audio_effect.findData(prefs.audio_effect)))
+        self._fill_audio_devices(self._devices, prefs.audio_device)
+        self.volume_levelling.setCurrentIndex(max(0, self.volume_levelling.findData(prefs.volume_levelling)))
         self.remember_volume.setChecked(prefs.remember_volume)
         self.allow_boost.setChecked(prefs.allow_volume_boost)
         self.seek_previews.setChecked(prefs.seek_previews)
@@ -463,6 +505,8 @@ class SettingsPage(QWidget):
             seek_step_s=int(self.seek_step.currentData()),
             fade_seconds=int(self.fade.currentData()),
             audio_effect=str(self.audio_effect.currentData()),
+            audio_device=str(self.audio_device.currentData() or ""),
+            volume_levelling=str(self.volume_levelling.currentData()),
             remember_volume=self.remember_volume.isChecked(),
             allow_volume_boost=self.allow_boost.isChecked(),
             seek_previews=self.seek_previews.isChecked(),

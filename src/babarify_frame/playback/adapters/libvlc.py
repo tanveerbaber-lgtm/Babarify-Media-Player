@@ -44,6 +44,7 @@ from babarify_frame.core.enhancements import (
 )
 from babarify_frame.core.errors import ErrorCode, PlaybackError
 from babarify_frame.core.models import (
+    AUDIO_EXTENSIONS,
     Chapter,
     EngineCapabilities,
     EngineOptions,
@@ -165,6 +166,10 @@ def video_transform_args(transform: VideoTransform) -> tuple[str, ...]:
     if transform is VideoTransform.NONE:
         return ()
     return ("--video-filter=transform", f"--transform-type={transform.value}")
+
+
+LEVELLING_RETRIES = 40  # x 50 ms: two seconds for the audio output to appear (0.12)
+LEVELLING_RETRY_S = 0.05
 
 
 class _SharedInstance:
@@ -389,6 +394,8 @@ class LibVlcEngine(EngineBase):
         self._equalizer = EqualizerSettings()
         self._level = 100  # the volume asked for; above 100 it is boost in the filter chain (M2)
         self._filters: FilterChain | None = None
+        self.levelling_applied = ""  # the ReplayGain mode last set on the audio output (0.12)
+        self._song = False  # the open file is a song: volume levelling applies to it
         self._eq_presets: tuple[str, ...] = ()
         self._eq_bands: tuple[int, ...] = ()
         # Network streams (M8)
@@ -402,6 +409,7 @@ class LibVlcEngine(EngineBase):
         self._instance = self._shared.instance
         self._shared.add_sink(self._on_log_line)
         self._player = self._instance.media_player_new()
+        self._apply_audio_device()
         vlc_dir = find_vlc_dir()
         try:
             self._filters = FilterChain(vlc_dir) if vlc_dir is not None else None
@@ -547,6 +555,8 @@ class LibVlcEngine(EngineBase):
         self._player.set_media(self._media)
         self._apply_picture()
         self._apply_equalizer()
+        self._song = os.path.splitext(uri)[1].lower() in AUDIO_EXTENSIONS
+        self._apply_levelling()  # when an audio output exists already; again once playing (below)
         if old is not None:
             old.release()
         if self._player.play() != 0:
@@ -699,6 +709,54 @@ class LibVlcEngine(EngineBase):
             effect = AUDIO_EFFECTS.get(self._options.audio_effect, "")
             self._filters.apply(self._player, filter_chain(values is not None, effect, boost > 0))
 
+    # ------------------------------------------------ sound output (0.12)
+    def audio_devices(self) -> tuple[tuple[str, str], ...]:
+        player = getattr(self, "_player", None)
+        if player is None:
+            return ()
+        head = player.audio_output_device_enum()
+        found: list[tuple[str, str]] = []
+        node = head
+        try:
+            while node:
+                device = (node.contents.device or b"").decode("utf-8", "replace")
+                name = (node.contents.description or b"").decode("utf-8", "replace")
+                if device:  # "" is "Default": the app lists Windows' default itself
+                    found.append((device, name or device))
+                node = node.contents.next
+        finally:
+            if head:
+                self._vlc.libvlc_audio_output_device_list_release(head)
+        return tuple(found)
+
+    def _apply_audio_device(self) -> None:
+        """Use the chosen output while it is connected; otherwise Windows' default, so sound never goes
+        to a device that has been unplugged."""
+        wanted = self._options.audio_device
+        if not wanted:
+            return
+        if wanted in {device for device, _name in self.audio_devices()}:
+            self._player.audio_output_device_set(None, wanted)
+        else:
+            _log.info("the chosen sound output is not connected; using the Windows default")
+
+    def _apply_levelling(self, attempt: int = 0) -> None:
+        """ReplayGain for songs only: libVLC turns untagged files down 7 dB, which would make every video
+        quieter. Set on the live audio output for each file (an instance option can't tell them apart).
+        The output can appear just after playback starts, so this tries again briefly until it exists."""
+        if self._filters is None or self._player is None:
+            return
+        mode = self._options.volume_levelling if self._song else "off"
+        value = "none" if mode == "off" else mode
+        if self._filters.set_variable(self._player, b"audio-replay-gain-mode", value):
+            self.levelling_applied = value  # read by the engine tests
+        elif attempt < LEVELLING_RETRIES and self.state in (S.LOADING, S.PLAYING, S.PAUSED):
+            timer = threading.Timer(LEVELLING_RETRY_S, self._defer, (self._apply_levelling, attempt + 1))
+            timer.daemon = True
+            timer.start()
+        elif attempt:
+            _log.debug("no audio output to set volume levelling on")
+
     def equalizer_preset(self, name: str) -> EqualizerSettings:
         if name not in self._eq_presets:
             raise PlaybackError(ErrorCode.INVALID_ARGUMENT, f"no equalizer preset {name!r}")
@@ -764,6 +822,7 @@ class LibVlcEngine(EngineBase):
         self._collect_media_info()
 
     def _on_playing(self, _event: Any) -> None:
+        self._defer(self._apply_levelling)  # libVLC creates the audio output as playback starts
         if self._info_pending:
             self._info_pending = False
             self._defer(self._collect_media_info)

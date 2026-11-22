@@ -30,6 +30,9 @@ class ProbeResult:
     album: str | None = None
     year: int | None = None
     genre: str | None = None
+    track_no: int | None = None  # 0.12: albums play in order
+    disc_no: int | None = None
+    album_artist: str | None = None
 
 
 class MediaProbe(ABC):

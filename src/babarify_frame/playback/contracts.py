@@ -154,6 +154,10 @@ class PlaybackEngine(ABC):
         """The values of one of capabilities().equalizer_presets, enabled, ready to adjust."""
         raise PlaybackError(ErrorCode.UNSUPPORTED, "the equalizer is not supported")
 
+    def audio_devices(self) -> tuple[tuple[str, str], ...]:
+        """Sound outputs connected now, as (id, name), without the Windows default (0.12)."""
+        return ()
+
 
 # Addresses of files on other computers or the internet. The player only opens files on this PC.
 NETWORK_SCHEMES = frozenset({"http", "https", "rtsp", "rtmp", "mms", "ftp", "udp", "rtp", "smb"})

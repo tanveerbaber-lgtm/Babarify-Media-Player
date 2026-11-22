@@ -90,26 +90,30 @@ class FilterChain:
         raw = player._as_parameter_
         return ctypes.c_void_p(raw.value if hasattr(raw, "value") else raw)
 
-    def _set(self, obj: ctypes.c_void_p, chain: str) -> bool:
-        result: int = self._core.var_SetChecked(
-            obj, b"audio-filter", VLC_VAR_STRING, _Value(psz_string=chain.encode())
-        )
+    def _set(self, obj: ctypes.c_void_p, chain: str, name: bytes = b"audio-filter") -> bool:
+        result: int = self._core.var_SetChecked(obj, name, VLC_VAR_STRING, _Value(psz_string=chain.encode()))
         return result == 0
 
     def apply(self, player: Any, chain: str) -> None:
         """Set the chain for the next audio output and, if one is playing, for it too."""
+        self.set_variable(player, b"audio-filter", chain, on_player=True)  # no output yet is normal
+
+    def set_variable(self, player: Any, name: bytes, value: str, *, on_player: bool = False) -> bool:
+        """Set a string variable on the player's live audio output (and on the player itself, so the next
+        output starts with it). False if no audio output had the variable to set."""
         pointer = self._pointer(player)
-        if not self._set(pointer, chain):
-            _log.warning("audio filters could not be set on the player")
+        if on_player and not self._set(pointer, value, name):
+            _log.warning("%s could not be set on the player", name.decode())
         children = self._core.vlc_list_children(pointer)
         if not children:
-            return
+            return False
+        done = False
         try:
             for i in range(children.contents.i_count):
                 child = ctypes.c_void_p(children.contents.p_values[i].p_address)
-                # The audio output is the child with an audio-filter variable of its own.
-                is_string = self._core.var_Type(child, b"audio-filter") & 0xFF == VLC_VAR_STRING
-                if is_string and not self._set(child, chain):
-                    _log.warning("audio filters could not be set on the playing output")
+                # The audio output is the child with a variable of that name of its own.
+                if self._core.var_Type(child, name) & 0xFF == VLC_VAR_STRING:
+                    done = self._set(child, value, name) or done
         finally:
             self._core.vlc_list_release(children)  # releases the references the list holds
+        return done
