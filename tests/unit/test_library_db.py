@@ -38,7 +38,7 @@ def scan(db: LibraryDatabase, folder_path: Path, cancel: threading.Event | None 
 # ------------------------------------------------------------ migrations
 def test_fresh_database_has_current_schema(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.db")
-    assert db.schema_version == SCHEMA_VERSION == 9
+    assert db.schema_version == SCHEMA_VERSION == 10
     assert db.recovered is None and db.read_only_reason is None
     db.close()
 
@@ -53,7 +53,7 @@ def test_version_1_database_migrates_and_keeps_data(tmp_path: Path) -> None:
     )
     conn.close()
     db = LibraryDatabase(path)
-    assert db.schema_version == 9
+    assert db.schema_version == 10
     row = db._query("SELECT position_ms, play_count FROM history WHERE path_key = 'k'")[0]
     assert (row[0], row[1]) == (42000, 3)
     assert db.playlists() == []  # the v2 tables exist
@@ -363,7 +363,7 @@ def test_bookmark_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
 
 
 def test_network_addresses_from_older_versions_are_never_listed(tmp_path: Path) -> None:
-    """Versions before 0.11 could play streams. Their history stays in the database but isn't shown."""
+    """Stream addresses (from 0.10, and again since 0.12) stay out of every list of files."""
     path = tmp_path / "library.db"
     db = LibraryDatabase(path)
     db.record_play("C:/Music/song.mp3", "song", 200_000)
@@ -374,8 +374,8 @@ def test_network_addresses_from_older_versions_are_never_listed(tmp_path: Path) 
             ("https://radio.example/live.mp3", "https://radio.example/live.mp3", "Radio"),
         )
     db = LibraryDatabase(path)
-    assert [e.path for e in db.recent()] == ["C:/Music/song.mp3"]
-    assert db.history_for("https://radio.example/live.mp3") is None
+    assert [e.path for e in db.recent()] == ["C:/Music/song.mp3"]  # never listed with files
+    assert db.recent_streams() == ["https://radio.example/live.mp3"]  # 0.12: offered in Open network stream
     assert list(db.play_counts()) == ["C:/Music/song.mp3"]
     assert db.history_count() == 2  # nothing was deleted
     db.close()

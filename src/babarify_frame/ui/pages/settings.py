@@ -292,6 +292,11 @@ class SettingsPage(QWidget):
 
         self.remember_history = QCheckBox("Remember recently played files and where I stopped")
         self.resume_playback = QCheckBox("Resume files where I left off")
+        self.check_updates = QCheckBox("Tell me when a new version is out")
+        self.check_updates.setToolTip(
+            "Once a day Babarify asks GitHub for its list of releases. "
+            "Nothing about you or your files is sent."
+        )
         self.clear_history_button = QPushButton("Clear history…")
         self.clear_history_button.setAccessibleName("Clear playback history")
         self.clear_history_button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
@@ -319,6 +324,7 @@ class SettingsPage(QWidget):
             [
                 ("", self.remember_history),
                 ("", self.resume_playback),
+                ("", self.check_updates),
                 ("", self.hidden_files_button),
                 ("", self.clear_history_button),
                 ("", self.backup_button),
@@ -330,7 +336,9 @@ class SettingsPage(QWidget):
         assert isinstance(privacy_box, QVBoxLayout)
         privacy_box.addWidget(
             _label(
-                "Babarify Media Player plays files locally. It has no account, no ads and no telemetry. "
+                "Babarify Media Player has no account, no ads and no telemetry. It goes online only to "
+                "check for new versions (if allowed above) and, with network streams on, to the streams and "
+                "channel lists you add. "
                 "Settings, history, the library and its thumbnails are stored only on this PC:",
                 "muted",
             )
@@ -340,11 +348,26 @@ class SettingsPage(QWidget):
         path_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         privacy_box.addWidget(path_label)
 
+        self.network_streams = QCheckBox("Allow network streams and IPTV")
+        self.network_streams.setAccessibleName("Allow network streams and IPTV")
+        network = self._card("Network", [("", self.network_streams)])
+        network_box = network.layout()
+        assert isinstance(network_box, QVBoxLayout)
+        network_box.addWidget(
+            _label(
+                "Off by default. When on, Babarify connects only to the stream addresses, channel lists and "
+                "TV guides you add yourself. Web streams go through Babarify's own safeguard, so a server "
+                "can never make the player open a file on this PC. Babarify doesn't include or suggest "
+                "channels.",
+                "muted",
+            )
+        )
+
         self.reset_button = QPushButton("Reset to defaults")
         self.reset_button.setAccessibleName("Reset settings to defaults")
         self.reset_button.clicked.connect(self._reset)
 
-        for widget in (appearance, playback, subtitles, fullscreen, privacy):
+        for widget in (appearance, playback, subtitles, fullscreen, network, privacy):
             column.addWidget(widget)
         column.addWidget(self.reset_button, alignment=Qt.AlignmentFlag.AlignLeft)
         column.addStretch(1)
@@ -359,6 +382,8 @@ class SettingsPage(QWidget):
         self.audio_effect.currentIndexChanged.connect(self._changed)
         self.audio_device.currentIndexChanged.connect(self._changed)
         self.volume_levelling.currentIndexChanged.connect(self._changed)
+        self.network_streams.toggled.connect(self._changed)
+        self.check_updates.toggled.connect(self._changed)
         self.remember_volume.toggled.connect(self._changed)
         self.allow_boost.toggled.connect(self._changed)
         self.seek_previews.toggled.connect(self._changed)
@@ -456,6 +481,8 @@ class SettingsPage(QWidget):
         self.audio_effect.setCurrentIndex(max(0, self.audio_effect.findData(prefs.audio_effect)))
         self._fill_audio_devices(self._devices, prefs.audio_device)
         self.volume_levelling.setCurrentIndex(max(0, self.volume_levelling.findData(prefs.volume_levelling)))
+        self.network_streams.setChecked(prefs.network_streams)
+        self.check_updates.setChecked(prefs.check_updates)
         self.remember_volume.setChecked(prefs.remember_volume)
         self.allow_boost.setChecked(prefs.allow_volume_boost)
         self.seek_previews.setChecked(prefs.seek_previews)
@@ -507,6 +534,8 @@ class SettingsPage(QWidget):
             audio_effect=str(self.audio_effect.currentData()),
             audio_device=str(self.audio_device.currentData() or ""),
             volume_levelling=str(self.volume_levelling.currentData()),
+            network_streams=self.network_streams.isChecked(),
+            check_updates=self.check_updates.isChecked(),
             remember_volume=self.remember_volume.isChecked(),
             allow_volume_boost=self.allow_boost.isChecked(),
             seek_previews=self.seek_previews.isChecked(),

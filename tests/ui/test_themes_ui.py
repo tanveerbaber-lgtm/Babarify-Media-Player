@@ -161,7 +161,8 @@ def test_the_animation_is_chosen_in_the_view_menu(window: MainWindow, tmp_path: 
 def test_the_rail_follows_the_design(window: MainWindow) -> None:
     """Home, Music, Videos, Playlists, Playing, and Settings set apart at the bottom (M3)."""
     rail_buttons = sorted(
-        (b for b in window.findChildren(QToolButton) if b.objectName() == "navButton"), key=lambda b: b.y()
+        (b for b in window.findChildren(QToolButton) if b.objectName() == "navButton" and b.isVisible()),
+        key=lambda b: b.y(),
     )
     assert [b.text() for b in rail_buttons] == ["Home", "Music", "Videos", "Playlists", "Playing", "Settings"]
     assert {b.width() for b in rail_buttons} == {window.nav_home.width()}, "lined up"
@@ -365,3 +366,22 @@ def test_leaving_full_screen_keeps_the_status_bar_as_chosen(qtbot: QtBot, window
     assert window.statusBar().isHidden(), "full screen hides it either way"
     window.exit_fullscreen()
     assert not window.statusBar().isHidden()
+
+
+def test_tv_joins_the_rail_only_while_streams_are_on(window: MainWindow, qtbot: QtBot) -> None:
+    """0.12: IPTV stays out of sight until network streams are switched on."""
+
+    def visible() -> list[str]:
+        buttons = (
+            b for b in window.findChildren(QToolButton) if b.objectName() == "navButton" and b.isVisible()
+        )
+        return [b.text() for b in sorted(buttons, key=lambda b: b.y())]
+
+    assert "TV" not in visible() and not window.tv_action.isVisible()
+    window.settings.network_streams.setChecked(True)
+    qtbot.waitUntil(lambda: "TV" in visible())
+    assert visible() == ["Home", "Music", "Videos", "Playlists", "TV", "Playing", "Settings"]
+    window.nav_tv.click()
+    assert window.current_page() is window.tv
+    window.settings.network_streams.setChecked(False)
+    assert "TV" not in visible() and window.current_page() is window.home

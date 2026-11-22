@@ -89,15 +89,18 @@ def test_no_old_ai_button_without_old_data(
     assert not window.settings.old_ai_button.isVisible()
 
 
-def test_no_network_or_ai_commands_remain(window: MainWindow) -> None:
+def test_no_ai_commands_remain_and_streams_start_switched_off(window: MainWindow) -> None:
+    """0.11 removed AI; 0.12 brought network streams back, off until the user switches them on."""
     names = [a.text().replace("&", "").lower() for a in window.findChildren(type(window.open_action))]
-    assert not [n for n in names if "network" in n or "stream" in n or "spoken" in n or "generate" in n]
+    assert not [n for n in names if "spoken" in n or "generate" in n]
     keys = {s.toString() for a in window.findChildren(type(window.open_action)) for s in a.shortcuts()}
-    for removed in ("Ctrl+N", "Ctrl+Shift+G", "Ctrl+Shift+F"):
+    for removed in ("Ctrl+Shift+G", "Ctrl+Shift+F"):
         assert QKeySequence(removed).toString() not in keys
+    assert QKeySequence("Ctrl+N").toString() in keys  # Open network stream: asks first while off
+    assert not window.settings.network_streams.isChecked()
 
 
-def test_a_dropped_web_link_is_ignored(window: MainWindow) -> None:
+def test_a_dropped_web_link_is_ignored_while_streams_are_off(window: MainWindow) -> None:
     mime = QMimeData()
     mime.setUrls([QUrl("https://example.com/video.mp4")])
     event = QDropEvent(

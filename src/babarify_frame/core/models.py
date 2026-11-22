@@ -117,6 +117,7 @@ class EngineCapabilities:
     supports_frame_back_step: bool = False
     supports_snapshot: bool = False
     # Advanced media (M8)
+    network_schemes: frozenset[str] = frozenset()  # subset of core.network.STREAM_SCHEMES
     supports_chapters: bool = False  # MediaInfo.chapters is filled when the file has chapters
     notes: tuple[str, ...] = field(default=())
 
@@ -210,6 +211,7 @@ class EngineOptions:
     audio_effect: str = "none"  # a key of core.music.AUDIO_EFFECTS
     audio_device: str = ""  # 0.12: an id from audio_devices(); "" = the Windows default
     volume_levelling: str = "off"  # 0.12: "off", "track" or "album" (ReplayGain), for songs only
+    network_streams: bool = False  # 0.12: streams and IPTV are refused unless switched on in Settings
 
 
 @dataclass(frozen=True)

@@ -177,6 +177,46 @@ MIGRATIONS: tuple[tuple[str, ...], ...] = (
             OR lower(name) LIKE '%.opus' OR lower(name) LIKE '%.wma' OR lower(name) LIKE '%.ac3'
             OR lower(name) LIKE '%.mka'""",
     ),
+    (  # 10 (0.12): IPTV. Channel lists the user added, their channels, favourites and the TV guide.
+        """CREATE TABLE iptv_sources(
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            location TEXT NOT NULL,
+            guide_url TEXT NOT NULL DEFAULT '',
+            added_at REAL NOT NULL,
+            refreshed_at REAL,
+            guide_refreshed_at REAL,
+            last_error TEXT NOT NULL DEFAULT '')""",
+        """CREATE TABLE iptv_channels(
+            id INTEGER PRIMARY KEY,
+            source_id INTEGER NOT NULL REFERENCES iptv_sources(id) ON DELETE CASCADE,
+            position INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            url TEXT NOT NULL,
+            group_name TEXT NOT NULL DEFAULT '',
+            tvg_id TEXT NOT NULL DEFAULT '',
+            logo TEXT NOT NULL DEFAULT '',
+            number INTEGER,
+            user_agent TEXT NOT NULL DEFAULT '',
+            referrer TEXT NOT NULL DEFAULT '')""",
+        "CREATE INDEX iptv_channels_source ON iptv_channels(source_id, position)",
+        """CREATE TABLE iptv_favourites(
+            url TEXT PRIMARY KEY,
+            added_at REAL NOT NULL)""",
+        """CREATE TABLE iptv_hidden_groups(
+            source_id INTEGER NOT NULL REFERENCES iptv_sources(id) ON DELETE CASCADE,
+            group_name TEXT NOT NULL,
+            PRIMARY KEY(source_id, group_name))""",
+        """CREATE TABLE iptv_programmes(
+            tvg_id TEXT NOT NULL,
+            start REAL NOT NULL,
+            stop REAL NOT NULL,
+            title TEXT NOT NULL,
+            subtitle TEXT NOT NULL DEFAULT '',
+            description TEXT NOT NULL DEFAULT '',
+            category TEXT NOT NULL DEFAULT '')""",
+        "CREATE INDEX iptv_programmes_channel ON iptv_programmes(tvg_id, start)",
+    ),
 )
 SCHEMA_VERSION = len(MIGRATIONS)
 _NOT_HIDDEN = "m.path_key NOT IN (SELECT path_key FROM hidden_media)"
@@ -908,9 +948,13 @@ class LibraryDatabase:
                 (path_key(path),),
             )
 
-    def _history_rows(self, where: str, params: Sequence[object], limit: int) -> list[HistoryEntry]:
-        # Network addresses played by versions before 0.11 stay in the table but are never listed.
-        condition = _LOCAL_HISTORY + (f" AND ({where.removeprefix('WHERE ')})" if where else "")
+    def _history_rows(
+        self, where: str, params: Sequence[object], limit: int, *, streams: bool = False
+    ) -> list[HistoryEntry]:
+        # Stream addresses stay in the table but are never listed with files; ``streams`` lets one entry be
+        # looked up by its exact address (0.12: playing a stream records it, like a file).
+        base = "1" if streams else _LOCAL_HISTORY
+        condition = base + (f" AND ({where.removeprefix('WHERE ')})" if where else "")
         rows = self._query(
             f"""SELECT h.*, m.thumbnail AS thumb, m.available AS m_available FROM history h
                 LEFT JOIN media m ON m.path_key = h.path_key WHERE {condition}
@@ -936,11 +980,20 @@ class LibraryDatabase:
         return out
 
     def history_for(self, path: str) -> HistoryEntry | None:
-        rows = self._history_rows("WHERE h.path_key = ?", (path_key(path),), 1)
+        rows = self._history_rows("WHERE h.path_key = ?", (path_key(path),), 1, streams=True)
         return rows[0] if rows else None
 
     def recent(self, limit: int = 20) -> list[HistoryEntry]:
         return self._history_rows("", (), limit)
+
+    def recent_streams(self, limit: int = 8) -> list[str]:
+        """Stream addresses played most recently (0.12), for the Open network stream dialog only: streams
+        are never listed with files, in Continue watching or elsewhere."""
+        network = " OR ".join(f"lower(path) LIKE '{prefix}%'" for prefix in NETWORK_PREFIXES)
+        rows = self._query(
+            f"SELECT path FROM history WHERE {network} ORDER BY last_played_at DESC LIMIT ?", (limit,)
+        )
+        return [r["path"] for r in rows]
 
     def continue_watching(self, limit: int = 12, min_position_ms: int = 10_000) -> list[HistoryEntry]:
         rows = self._history_rows(

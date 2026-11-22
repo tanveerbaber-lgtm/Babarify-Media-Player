@@ -24,17 +24,37 @@ lyrics and a background picture are kept by the app, not written into your files
 
 ## Network use
 
-None. Since 0.11 Babarify Media Player is a local player: it plays files on this PC and makes no network
-connections of its own. There are no network streams, no downloads and no automatic update check. To update,
-download a newer installer yourself. (*Help → Report a problem* can open the project's issue page in your
-browser when you click it; the report itself is text you copy, and nothing is sent by the app.)
+Babarify Media Player plays the files on this PC. Since 0.12 it goes online in exactly two cases, and you
+decide both.
 
-Since 0.12, when you open a file while Babarify is already open, the new start passes the file to the open
-window through a local named pipe and closes. The pipe is private to your Windows account, exists only on
-this PC and carries nothing but the file's path.
+**1. Checking for new versions** (*Settings → Privacy → Tell me when a new version is out*, on by default).
+About a minute after start, and then at most once a day, Babarify asks GitHub for the project's list of
+releases. It sends only a generic client name ("Babarify Media Player/<version>"). Like any web request, GitHub
+sees your internet address. If a newer version exists, Babarify says so; *Download* opens the release page in
+your browser. Babarify never downloads or installs anything by itself. *Help → Check for updates* asks at any
+time. Switch it off and Babarify doesn't ask.
 
-Versions 0.9 and 0.10 could play network streams and download a speech model for optional AI subtitles. If
-you used them, *Settings → Privacy → Delete old AI data* removes what they left.
+**2. Network streams and IPTV** (*Settings → Network → Allow network streams and IPTV*, off by default). Only
+while this is on does Babarify connect to:
+
+- the stream addresses you open (*File → Open network stream*, or a link you drop on the window);
+- the channel lists (M3U) and TV guides (XMLTV) you add on the TV page, read again once a day;
+- the channels you play.
+
+Web streams are fetched by Babarify's own safeguard, so a server can't make the player open a file on this PC
+or a network share. A channel list's own user agent or referrer is sent only to that list's streams. Babarify
+doesn't include, suggest or share channel lists. Stream addresses you play stay in your local history and are
+never listed with your files.
+
+Babarify doesn't connect anywhere else. *Help → Report a problem* can open the project's issue page in your
+browser when you click it; the report itself is text you copy, and nothing is sent by the app.
+
+When you open a file while Babarify is already open, the new start passes the file to the open window through a
+local named pipe and closes. The pipe is private to your Windows account, exists only on this PC and carries
+nothing but the file's path.
+
+Versions 0.9 and 0.10 could download a speech model for optional AI subtitles. If you used them, *Settings →
+Privacy → Delete old AI data* removes what they left.
 
 ## Contact
 

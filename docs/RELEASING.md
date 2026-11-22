@@ -45,8 +45,12 @@ PyInstaller (`packaging/babarify.spec`), adds `LICENSE.txt`, `THIRD_PARTY_NOTICE
 
 ## Updates and rollback
 
-There is no automatic updater and no update check (privacy: the app makes no network
-connection on its own). Updating means running a newer installer:
+There is no automatic updater. Since 0.12 the app checks for updates (on by default, switch in Settings →
+Privacy): about a minute after start and then at most once a day it reads the repository's release list
+from the GitHub API, sending only a generic client name. Publishing a GitHub release is therefore what tells
+users: the newest non-draft release whose tag is a newer version (pre-releases included) is offered, with
+its notes as plain text and a button that opens the release page. Nothing is downloaded by the app.
+Updating means running a newer installer:
 
 - **Integrity:** users verify the installer against `SHA256SUMS.txt` (unsigned builds; see
   below). The installer replaces the whole program folder (`[InstallDelete]` of `_internal`,

@@ -120,6 +120,17 @@ A feasibility prototype only, with no version planned yet
   copy of the app.
 - New: the library and the Open dialog include AIFF, WavPack, TTA and CAF audio, and ASF, DivX, F4V and
   RealMedia video. The Open dialog also lists MKA files, which it was missing.
+- New: network streams and IPTV, off until you switch them on (Settings → Network). *File → Open network
+  stream* (Ctrl+N) plays web streams, HLS, internet radio, RTSP and your internet provider's multicast TV. A
+  live stream that drops reconnects by itself for about a minute. Web streams go through Babarify's own
+  safeguard, so a server can never make the player open a file on this PC.
+- New: a TV page for IPTV channel lists (M3U) you add from your provider, by web address or as a file:
+  groups, search, favourites, hidden groups, Now and Next from the TV guide (XMLTV), and each channel's
+  schedule. Page Up and Page Down change channel on the player, and Backspace goes back to the last one.
+  Lists and guides are read again daily. Babarify doesn't include or suggest channels.
+- New: Babarify tells you when a new version is out (Settings → Privacy, on by default). It asks GitHub
+  once a day and sends nothing about you; *Download* opens the release page, and you can skip a version.
+  *Help → Check for updates* asks at any time.
 
 ## Windows 0.11.0 (2026-11-22, public beta)
 

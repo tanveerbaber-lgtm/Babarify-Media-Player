@@ -16,11 +16,13 @@ from __future__ import annotations
 
 import contextlib
 import random
+import tempfile
+import time
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QRect, QSize, Qt
+from PySide6.QtCore import QEvent, QRect, QSize, Qt, QTimer
 from PySide6.QtGui import (
     QAction,
     QCloseEvent,
@@ -57,7 +59,11 @@ from babarify_frame.configuration.preferences import Preferences, PreferencesSto
 from babarify_frame.core.enhancements import EqualizerSettings
 from babarify_frame.core.models import MEDIA_EXTENSIONS, SUBTITLE_EXTENSIONS, MediaInfo, PlaybackState
 from babarify_frame.core.music import SLEEP_MINUTES, STYLE_LABELS, VisualStyle
+from babarify_frame.core.network import STREAM_SCHEMES, is_network_uri
 from babarify_frame.core.themes import THEMES
+from babarify_frame.core.updates import CHECK_EVERY_S
+from babarify_frame.iptv.service import IptvService
+from babarify_frame.iptv.store import ChannelEntry, IptvStore
 from babarify_frame.library import backup, legacy_ai
 from babarify_frame.library.database import LibraryDatabase
 from babarify_frame.library.models import HistoryEntry
@@ -68,17 +74,21 @@ from babarify_frame.playback.preview import FramePreview
 from babarify_frame.ui import theme
 from babarify_frame.ui.audio_view import QueueDialog
 from babarify_frame.ui.bookmarks import BookmarksDialog
+from babarify_frame.ui.bridge import UiBridge
 from babarify_frame.ui.diagnostics import PlaybackInfoDialog
 from babarify_frame.ui.enhancements import EnhancementsDialog
 from babarify_frame.ui.lyrics_dialog import LyricsDialog
 from babarify_frame.ui.media_info import MediaInfoDialog
 from babarify_frame.ui.mini_player import MiniPlayer
+from babarify_frame.ui.network import NetworkStreamDialog
 from babarify_frame.ui.pages.home import SHORTCUTS, HomePage
 from babarify_frame.ui.pages.library import HiddenFilesDialog, LibraryPage
 from babarify_frame.ui.pages.player import VOLUME_STEP, PlayerPage
 from babarify_frame.ui.pages.settings import SettingsPage, theme_swatch
+from babarify_frame.ui.pages.tv import TvPage
 from babarify_frame.ui.report import ReportDialog
 from babarify_frame.ui.subtitles import SUBTITLE_FILTER
+from babarify_frame.ui.update_notice import UpdateBar, UpdateChecker, UpdateResult
 from babarify_frame.ui.widgets import format_time, glyph_icon, set_topmost
 
 # The same types the library scans, so the Open dialog and the library always agree.
@@ -96,8 +106,10 @@ class MainWindow(QMainWindow):
         store: PreferencesStore | None = None,
         library: LibraryService | None = None,
         preview_factory: Callable[[], FramePreview] | None = None,
+        update_check: bool = False,
     ) -> None:
         super().__init__()
+        self._update_check = update_check  # only the real app asks GitHub on its own; never tests or checks
         self._store = store or PreferencesStore()
         self._prefs = self._store.load()
         self._apply_colour_theme(self._prefs.colour_theme)
@@ -122,8 +134,14 @@ class MainWindow(QMainWindow):
         self.library = LibraryPage(self.library_service, self._prefs.library_sort)
         self.library.set_section("music")  # M3: the side bar opens Music, Videos or Playlists
         self.settings = SettingsPage(self._prefs, self._store.path, library_path=db.path)
+        # IPTV (0.12): idle, and its page hidden, until network streams are switched on.
+        self.iptv = IptvService(IptvStore(db), Path(tempfile.gettempdir()) / "Babarify IPTV")
+        self.iptv.set_enabled(self._prefs.network_streams)
+        self.tv = TvPage(self.iptv)
+        self._last_channel: ChannelEntry | None = None  # for "previous channel"
+        self._current_channel: ChannelEntry | None = None
         self._pages = QStackedWidget()
-        for page in (self.home, self.library, self.player, self.settings):
+        for page in (self.home, self.library, self.player, self.settings, self.tv):
             self._pages.addWidget(page)
 
         root = QWidget()
@@ -134,7 +152,17 @@ class MainWindow(QMainWindow):
         self._nav_icons: list[tuple[QToolButton, str]] = []
         self._rail = self._build_rail(icon)
         row.addWidget(self._rail)
-        row.addWidget(self._pages, stretch=1)
+        column = QVBoxLayout()
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(0)
+        self.update_bar = UpdateBar()
+        self.update_bar.skipped.connect(lambda version: self._remember(skipped_update=version))
+        column.addWidget(self.update_bar)
+        column.addWidget(self._pages, stretch=1)
+        row.addLayout(column, stretch=1)
+        self._update_bridge = UiBridge(self)
+        self._update_bridge.delivered.connect(self._on_update_result)
+        self._updates = UpdateChecker(self._update_bridge)
         self.setCentralWidget(root)
         if self._prefs.background_picture:
             self._apply_background()
@@ -144,7 +172,7 @@ class MainWindow(QMainWindow):
         self.mini.activated.connect(lambda: self._keep_on_top(self.mini))
         self._build_actions()
         self._connect_pages()
-        self.statusBar().showMessage(f"Version {__version__} · Local-only · No telemetry")
+        self.statusBar().showMessage(f"Version {__version__} · No account · No telemetry")
         self._restore_geometry()
         self.statusBar().setVisible(self._prefs.show_status_bar)
         self.show_page(self.home)
@@ -177,9 +205,18 @@ class MainWindow(QMainWindow):
             self._nav.addButton(button)
             button.clicked.connect(lambda _=False, s=section: self.show_library(s))
         self.nav_library = self.nav_music  # its name before M3
+        self.nav_tv = self._nav_button("tv", "TV", "TV channels from your lists", self.tv)
+        self.nav_tv.setVisible(self._prefs.network_streams)
         self.nav_player = self._nav_button("play", "Playing", "Now Playing (Ctrl+2)", self.player)
         self.nav_settings = self._nav_button("settings", "Settings", "Settings (Ctrl+3)", self.settings)
-        for button in (self.nav_home, self.nav_music, self.nav_videos, self.nav_playlists, self.nav_player):
+        for button in (
+            self.nav_home,
+            self.nav_music,
+            self.nav_videos,
+            self.nav_playlists,
+            self.nav_tv,
+            self.nav_player,
+        ):
             box.addWidget(button)
         box.addStretch(1)
         box.addWidget(self.nav_settings)
@@ -223,6 +260,20 @@ class MainWindow(QMainWindow):
         self.library_action = self._action("&Music", [K("Ctrl+L")], lambda: self.show_library("music"))
         self.videos_action = self._action("&Videos", [], lambda: self.show_library("videos"))
         self.playlists_action = self._action("Pla&ylists", [], lambda: self.show_library("playlists"))
+        self.tv_action = self._action("&TV", [], lambda: self.show_page(self.tv))
+        self.tv_action.setVisible(self._prefs.network_streams)
+        # Channel up and down, and back to the last channel (0.12): on the player only, so lists and text
+        # boxes elsewhere keep their own Page Up, Page Down and Backspace.
+        for text, key, slot in (
+            ("Next channel", "PgDown", lambda: self.step_channel(1)),
+            ("Previous channel", "PgUp", lambda: self.step_channel(-1)),
+            ("Last channel", "Backspace", self.previous_channel),
+        ):
+            channel_action = QAction(text, self.player)
+            channel_action.setShortcut(K(key))
+            channel_action.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+            channel_action.triggered.connect(slot)
+            self.player.addAction(channel_action)
         self.add_folder_action = self._action("Add folder to &library…", [], self.choose_library_folder)
         self.next_action = self._action("&Next in playlist", [K(Qt.Key.Key_N)], p.next_in_queue)
         self.previous_action = self._action("P&revious in playlist", [K(Qt.Key.Key_P)], p.previous_in_queue)
@@ -298,6 +349,9 @@ class MainWindow(QMainWindow):
             self.audio_later_action,
         )
         self.report_action = self._action("&Report a problem…", [], self.show_report)
+        self.update_action = self._action(
+            "Check for &updates…", [], lambda: self.check_for_updates(manual=True)
+        )
         about_action = QAction(f"&About {PRODUCT_NAME}", self)
         about_action.triggered.connect(self._show_about)
         self._playback_actions = (
@@ -314,6 +368,8 @@ class MainWindow(QMainWindow):
         menus = self.menuBar()
         file_menu = menus.addMenu("&File")
         file_menu.addAction(self.open_action)
+        self.open_stream_action = self._action("Open network &stream…", [K("Ctrl+N")], self.choose_stream)
+        file_menu.addAction(self.open_stream_action)
         file_menu.addAction(self.load_subtitle_action)
         file_menu.addAction(self.add_folder_action)
         file_menu.addSeparator()
@@ -366,6 +422,7 @@ class MainWindow(QMainWindow):
             self.library_action,
             self.videos_action,
             self.playlists_action,
+            self.tv_action,
             self.player_action,
             self.settings_action,
         ):
@@ -394,6 +451,7 @@ class MainWindow(QMainWindow):
         help_menu = menus.addMenu("&Help")
         help_menu.addAction(shortcuts_action)
         help_menu.addAction(self.report_action)
+        help_menu.addAction(self.update_action)
         help_menu.addAction(about_action)
 
     def _connect_pages(self) -> None:
@@ -408,6 +466,17 @@ class MainWindow(QMainWindow):
         self.player.queue_requested.connect(self.show_queue)
         self.player.repeat_changed.connect(self._on_repeat_changed)
         self.player.engine_ready.connect(self._on_engine_ready)
+        self.tv.play_requested.connect(self.play_channel)
+        self.tv.status_changed.connect(lambda text: self.statusBar().showMessage(text, 6000))
+        self._iptv_timer = QTimer(self)
+        self._iptv_timer.setInterval(3600 * 1000)  # lists and guides that are due are read again
+        self._iptv_timer.timeout.connect(self.iptv.refresh_due)
+        self._iptv_timer.start()
+        if self._prefs.network_streams:
+            QTimer.singleShot(5000, self.iptv.refresh_due)  # after start-up, not during it
+        if self._update_check:
+            QTimer.singleShot(60_000, lambda: self.check_for_updates(manual=False))  # a minute after start
+            self._iptv_timer.timeout.connect(lambda: self.check_for_updates(manual=False))  # and hourly
         self.player.video_started.connect(self._on_video_started)
         self.settings.preferences_changed.connect(self._on_preferences_changed)
         # Library and history (M6)
@@ -467,6 +536,7 @@ class MainWindow(QMainWindow):
             (self.nav_home, self.home),
             (self.nav_player, self.player),
             (self.nav_settings, self.settings),
+            (self.nav_tv, self.tv),
         ):
             button.setChecked(target is page)
         for button, section in self._library_buttons:
@@ -488,6 +558,7 @@ class MainWindow(QMainWindow):
         on_player = self.current_page() is self.player
         ready = p.engine_is_ready
         self.open_action.setEnabled(ready)
+        self.open_stream_action.setEnabled(ready)
         self.home.set_engine_ready(ready)
         self.play_action.setEnabled(on_player and p.has_media and p.state is not PlaybackState.ERROR)
         self.stop_action.setEnabled(on_player and (p.has_media or p.state is PlaybackState.ERROR))
@@ -534,6 +605,93 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(self, "Open media", "", MEDIA_FILTER)
         if path:
             self.open_path(path)
+
+    def choose_stream(self) -> NetworkStreamDialog | None:
+        """File → Open network stream (0.12, as in 0.10). While network streams are off, it explains and
+        offers to switch them on; nothing connects until the user agrees. Returns the dialog for tests."""
+        if not self.player.engine_is_ready:
+            return None
+        if not self._prefs.network_streams:
+            answer = QMessageBox.question(
+                self,
+                "Network streams are off",
+                "Babarify plays files on this PC unless you allow network streams and IPTV.\n\n"
+                "Turn them on now? You can turn them off again in Settings → Network.",
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return None
+            self.settings.network_streams.setChecked(True)  # saves, and restarts the engine with streams on
+        recent = self.library_service.db.recent_streams() if self._prefs.remember_history else []
+        dialog = NetworkStreamDialog(STREAM_SCHEMES, recent, self)
+        dialog.accepted.connect(lambda: self.open_path(dialog.url) if dialog.url else None)
+        dialog.open()
+        return dialog
+
+    # ------------------------------------------------------- updates (0.12)
+    def check_for_updates(self, manual: bool) -> bool:
+        """Ask GitHub whether a newer version is out. On its own: at most once a day, and only while the
+        user allows it. Help → Check for updates always asks, and always answers."""
+        if not manual and (
+            not self._update_check
+            or not self._prefs.check_updates
+            or time.time() - self._prefs.last_update_check < CHECK_EVERY_S
+        ):
+            return False
+        if manual:
+            self.statusBar().showMessage("Checking for updates…", 4000)
+        return self._updates.check(manual)
+
+    def _on_update_result(self, payload: object) -> None:
+        if not isinstance(payload, UpdateResult):
+            return
+        if not payload.error:
+            self._remember(last_update_check=time.time())
+        release = payload.release
+        if release is not None and (payload.manual or release.version != self._prefs.skipped_update):
+            self.update_bar.offer(release)
+            if payload.manual:
+                self.update_bar.show_notes()
+        elif payload.manual and payload.error:
+            QMessageBox.information(self, "Check for updates", f"Couldn't check: {payload.error}.")
+        elif payload.manual:
+            QMessageBox.information(
+                self,
+                "Check for updates",
+                f"You have the newest version, {PRODUCT_NAME} {__version__}.",
+            )
+
+    # ------------------------------------------------------- IPTV (0.12)
+    def _apply_network_streams(self) -> None:
+        enabled = self._prefs.network_streams
+        self.iptv.set_enabled(enabled)
+        self.nav_tv.setVisible(enabled)
+        self.tv_action.setVisible(enabled)
+        if enabled:
+            self.iptv.refresh_due()
+            self.tv.refresh()
+        elif self.current_page() is self.tv:
+            self.show_page(self.home)
+
+    def play_channel(self, entry: ChannelEntry) -> None:
+        if self._current_channel is not None and self._current_channel.url != entry.url:
+            self._last_channel = self._current_channel
+        self._current_channel = entry
+        self.show_page(self.player)
+        self.player.open_channel(entry.url, entry.name, entry.user_agent, entry.referrer)
+        self.statusBar().showMessage(f"{entry.number}  {entry.name}" if entry.number else entry.name, 4000)
+
+    def step_channel(self, step: int) -> None:
+        """Channel up and down among the channels on the TV page (Page Up / Page Down on the player)."""
+        if self.player.channel_url is None:
+            return
+        entry = self.tv.neighbour(self.player.channel_url, step)
+        if entry is not None:
+            self.play_channel(entry)
+
+    def previous_channel(self) -> None:
+        """Back to the channel watched before this one (Backspace on the player)."""
+        if self._last_channel is not None and self.player.channel_url is not None:
+            self.play_channel(self._last_channel)
 
     def open_from_another_start(self, path: str) -> None:
         """A second start of the app handed over its file (0.12): come to the front and play it."""
@@ -867,6 +1025,7 @@ class MainWindow(QMainWindow):
         if not isinstance(prefs, Preferences):
             return
         history_toggled = prefs.remember_history != self._prefs.remember_history
+        streams_toggled = prefs.network_streams != self._prefs.network_streams
         theme_changed = prefs.colour_theme != self._prefs.colour_theme
         background_changed = prefs.background_picture != self._prefs.background_picture
         self._prefs = replace(
@@ -882,6 +1041,8 @@ class MainWindow(QMainWindow):
         )
         self.player.set_preferences(self._prefs)
         self._store.save(self._prefs)
+        if streams_toggled:
+            self._apply_network_streams()
         self.status_bar_action.setChecked(self._prefs.show_status_bar)
         if not self.isFullScreen():
             self.statusBar().setVisible(self._prefs.show_status_bar)
@@ -1088,7 +1249,8 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------ window
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
         urls = event.mimeData().urls()
-        if self.player.engine_is_ready and urls and urls[0].isLocalFile():
+        dropped_stream = self._prefs.network_streams and bool(urls) and is_network_uri(urls[0].toString())
+        if self.player.engine_is_ready and urls and (urls[0].isLocalFile() or dropped_stream):
             event.acceptProposedAction()
             self.home.set_drag_active(True)
 
@@ -1099,6 +1261,11 @@ class MainWindow(QMainWindow):
     def dropEvent(self, event: QDropEvent) -> None:
         self.home.set_drag_active(False)
         urls = event.mimeData().urls()
+        if urls and not urls[0].isLocalFile() and is_network_uri(urls[0].toString()):
+            if self._prefs.network_streams:  # a link dragged from a browser (as in 0.10)
+                self.open_path(urls[0].toString())  # checked by the engine like a typed address
+                event.acceptProposedAction()
+            return
         if urls and urls[0].isLocalFile() and Path(urls[0].toLocalFile()).is_dir():
             self.add_library_folder(urls[0].toLocalFile())  # a dropped folder joins the library
             event.acceptProposedAction()
@@ -1128,6 +1295,7 @@ class MainWindow(QMainWindow):
         )
         extra = (
             "<tr><td><b>S</b></td><td>Stop</td></tr>"
+            "<tr><td><b>Ctrl+N</b></td><td>Open network stream</td></tr>"
             "<tr><td><b>F11 / double-click</b>&nbsp;&nbsp;</td><td>Fullscreen</td></tr>"
             "<tr><td><b>Esc</b></td><td>Leave fullscreen</td></tr>"
             "<tr><td><b>Ctrl+1 / 2 / 3</b>&nbsp;&nbsp;</td><td>Home / Now Playing / Settings</td></tr>"
@@ -1182,6 +1350,7 @@ class MainWindow(QMainWindow):
         self._store.save(self._final_preferences())
         # Rule: the engine must be closed while its host window still exists.
         self.player.shutdown()  # also saves the playback position
+        self.iptv.shutdown()
         self.library.stop_listening()
         self.library_service.shutdown()
         self.library_service.db.close()
