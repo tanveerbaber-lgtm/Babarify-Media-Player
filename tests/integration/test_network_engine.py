@@ -275,6 +275,7 @@ def test_previews_are_real_frames_and_do_not_disturb_playback(qtbot: QtBot, engi
     assert not preview.open(str(H264.with_name("not_media.mp4")))  # no picture: False, no hang
 
 
+@requires_libvlc
 def test_streams_are_refused_until_switched_on() -> None:
     """0.12: network streams are off by default; the engine refuses an address before libVLC sees it."""
     from babarify_frame.core.errors import PlaybackError
