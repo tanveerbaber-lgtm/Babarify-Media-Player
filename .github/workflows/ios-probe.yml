@@ -19,7 +19,7 @@ jobs:
       run:
         working-directory: ios/prototype
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Show tools
         run: |
@@ -72,7 +72,7 @@ jobs:
             echo "$m: $(strings "$BIN" | grep -c -- "$m")" >> probe-output/vlckit-markers.txt
           done
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: probe-output

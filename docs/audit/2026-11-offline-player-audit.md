@@ -235,3 +235,19 @@ Still to verify by hand: a run with Wi-Fi switched off (changing the PC's networ
 | 20,000 files | Scan 394 s with the worst UI pause 115 ms. Before the fixes: Songs tab 4.1 s, Albums and Genres 2.4 s, Videos 2.9–4.8 s. After (blocked tab signals during section switches, the media grid loaded only when shown, the song list kept until the library visibly changes): Music page 0.2 s, tabs 27–164 ms, Videos 0.8 s, Playlists 23 ms, search 40 ms | `tools/large_library_check.py` |
 | Closing during a scan | **Fixed:** a stopped scan's last report reached the page after the library was closed (an error in the log) | timing runs |
 | Not done | Scan speed for many new files (6.5 min for 20,000) not investigated; the mini player has no artwork; crossfade still awaits a decision | — |
+
+## 13. Milestone 4 results (22 November 2026, 0.11.0 built, not committed)
+
+Decisions: crossfade left for a later version; the release is 0.11.0.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Formats | 143 real-engine tests pass. Every generated test file played through the installed program (curated engine): all play except three broken on purpose (`e_empty.mp4`, `not_media.mp4`, `truncated.mp4`); the first file after an install can miss a 3 s check while Windows scans the new program (engine ready in 6 s) | `tests/integration`; `build/m4_formats.py` runs |
+| Crash found | One heap-corruption crash (0xC0000374) in about 60 runs, while seek-bar previews opened a second player. Hardened: every frame buffer handed to libVLC (previews and thumbnails) stays alive until its player is released. Not reproduced in 90 further runs (two passes over every file, installed 0.11.0) | crash.log; `libvlc_preview.py`, `libvlc_probe.py` |
+| High DPI | Every page drawn at 125 % (1093 × 614), 150 % (1280 × 720) and 200 % (960 × 540) on the real desktop and checked for cut-off text. Fixed: Playlists page buttons cut off and a heading overlapping the lists at 200 %; an outdated "Media tab" hint | `build/m4_dpi.py` screenshots |
+| Performance | Cold start 9.2 s → 3.3 s; warm 2.9 → 1.8–1.9 s; memory idle / music / 1080p video 187 / 190 / 421 MB; CPU idle 0.15 %, 1080p video 0.8 %. Music 3–5 % while the no-picture animation is on screen (0.2 % minimised; unchanged since 0.10.0; known issue) | `build/m4_perf.py` on the installed build |
+| Sleep and wake | No special handling in the app; to be checked by hand | — |
+| Upgrade with real data | 0.10.0 → 0.11.0 → 0.10.0 → uninstall in a clean environment, on a copy of the maintainer's real library rebuilt at schema 7: all records kept, settings unchanged, newer library untouched by the rollback, user data kept on uninstall | `tools/release_check.py --real-data` |
+| Gap found | The plan promised a database copy before migrations; it did not exist. Added: `library.before-v<old>.db`, a consistent single-file copy, never overwritten | `tests/unit/test_library_db.py` |
+| CI | GitHub Actions moved to current versions (checkout 7, setup-python 7, setup-java 6, upload-artifact 7) | `.github/workflows` |
+| Still by hand | Offline run with networking off; sleep and wake during playback | — |

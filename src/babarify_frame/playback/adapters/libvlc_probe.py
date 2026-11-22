@@ -127,7 +127,8 @@ class LibVlcProbe(MediaProbe):
 
     def _thumbnail(self, media: Any, result: ProbeResult, cancel: threading.Event) -> ProbeResult | None:
         vlc = self._vlc
-        state: dict[str, Any] = {"w": 0, "h": 0, "buf": None, "frames": 0, "src": (0, 0)}
+        # "keep": every buffer handed to libVLC, alive until the player is released (see libvlc_preview).
+        state: dict[str, Any] = {"w": 0, "h": 0, "buf": None, "frames": 0, "src": (0, 0), "keep": []}
         done = threading.Event()
         shown = threading.Event()
         parsed_w, parsed_h = result.width or 0, result.height or 0
@@ -136,9 +137,9 @@ class LibVlcProbe(MediaProbe):
         def setup(_opaque: Any, chroma: int, width: Any, height: Any, pitches: Any, lines: Any) -> int:
             out_w, out_h = thumbnail_size(width[0], height[0], parsed_w, parsed_h)
             ctypes.memmove(chroma, b"RV32", 4)
-            state.update(
-                w=out_w, h=out_h, src=(width[0], height[0]), buf=(ctypes.c_ubyte * (out_w * out_h * 4))()
-            )
+            buf = (ctypes.c_ubyte * (out_w * out_h * 4))()
+            state["keep"].append(buf)
+            state.update(w=out_w, h=out_h, src=(width[0], height[0]), buf=buf)
             width[0], height[0] = out_w, out_h
             pitches[0], lines[0] = out_w * 4, out_h
             return 1

@@ -147,6 +147,7 @@ class FoldersDialog(QDialog):
 
 
 AUTOMATIC_LISTS = ("Favourites", "Recently played", "Most played", "Recently added")
+ADD_HINT = "To add songs or videos, right-click one in Music or Videos → Add to playlist."
 
 
 class HiddenFilesDialog(QDialog):
@@ -201,7 +202,9 @@ class PlaylistsPanel(QWidget):
         self.automatic.setAccessibleName("Automatic playlists")
         self.automatic.setMaximumWidth(280)
         self.automatic.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.automatic.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # All four lists show when there is room; in a short window (high scaling) it scrolls instead of
+        # overlapping what is below it (M4).
+        self.automatic.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         for name in AUTOMATIC_LISTS:
             self.automatic.addItem(name)
         left.addWidget(self.automatic)
@@ -237,17 +240,19 @@ class PlaylistsPanel(QWidget):
         self.items.setDefaultDropAction(Qt.DropAction.MoveAction)
         self.items.model().rowsMoved.connect(lambda *_args: self._dropped())
         right.addWidget(self.items, stretch=1)
-        item_buttons = QHBoxLayout()
         self.play_button = QPushButton("Play")
         self.play_button.setObjectName("primary")
         self.up_button = QPushButton("Move up")
         self.down_button = QPushButton("Move down")
         self.remove_button = QPushButton("Remove from playlist")
-        for button in (self.play_button, self.up_button, self.down_button, self.remove_button):
-            item_buttons.addWidget(button)
-        item_buttons.addStretch(1)
-        right.addLayout(item_buttons)
-        self.hint = _label("Add files from the Media tab: right-click a file → Add to playlist.", "caption")
+        # Two short rows: one row of four was squeezed until the words were cut off at 200 % scaling (M4).
+        for pair in ((self.play_button, self.remove_button), (self.up_button, self.down_button)):
+            item_buttons = QHBoxLayout()
+            for button in pair:
+                item_buttons.addWidget(button)
+            item_buttons.addStretch(1)
+            right.addLayout(item_buttons)
+        self.hint = _label(ADD_HINT, "caption")
         right.addWidget(self.hint)
         row.addLayout(right, stretch=1)
 
@@ -267,7 +272,11 @@ class PlaylistsPanel(QWidget):
         super().showEvent(event)
         # Only now does a row know its height, because the app's style has been applied.
         frame = self.automatic.frameWidth() * 2
-        self.automatic.setFixedHeight(self.automatic.sizeHintForRow(0) * len(AUTOMATIC_LISTS) + frame + 2)
+        row_height = self.automatic.sizeHintForRow(0)
+        self.automatic.setMaximumHeight(row_height * len(AUTOMATIC_LISTS) + frame + 2)
+        self.automatic.setMinimumHeight(row_height * 2 + frame + 2)
+        for button in (self.play_button, self.up_button, self.down_button, self.remove_button):
+            button.setMinimumWidth(button.sizeHint().width())  # never cut a word off
         self.automatic.scrollToTop()
 
     @property
@@ -363,7 +372,7 @@ class PlaylistsPanel(QWidget):
         elif automatic:
             self.hint.setText("This list fills itself in from what you play and add.")
         else:
-            self.hint.setText("Add files from the Media tab: right-click a file → Add to playlist.")
+            self.hint.setText(ADD_HINT)
 
     def import_playlist(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Import a playlist", "", "Playlists (*.m3u *.m3u8)")

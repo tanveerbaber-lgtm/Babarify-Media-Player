@@ -28,8 +28,12 @@ engine in `.engines/vlc` (README), git.
    - `BabarifyMediaPlayer-<version>-manifest.json`: every shipped file with size and SHA-256, and
      the commit
    - `SHA256SUMS.txt`
-4. `python tools/release_check.py <previous-setup.exe> <new-setup.exe>`: install, run in a
-   clean environment, AI worker, upgrade, rollback and uninstall checks.
+4. `python tools/release_check.py <previous-setup.exe> <new-setup.exe> [out.json] [--real-data <folder>]`:
+   install, run in a clean environment, upgrade, rollback and uninstall checks. With `--real-data`, a
+   *copy* of a settings-and-library folder is upgraded and its counts, settings and pre-migration
+   copy are compared. Close Babarify first. The check shares the app's Windows uninstall entry and
+   removes it at the end, so reinstall the development PC's own copy afterwards (with `/TASKS=` set
+   to what it had).
 5. Record the checksums in the milestone report and the release page; publish the source
    archive alongside the installer.
 

@@ -4,7 +4,9 @@ the index of machine-generated subtitles (M9; the feature was removed in 0.11, t
 Design rules:
 * Local only: one file in the user's app-data folder; nothing is uploaded.
 * Versioned schema (``PRAGMA user_version``). Each migration runs in one transaction, so a
-  crash mid-migration leaves the previous version intact.
+  crash mid-migration leaves the previous version intact. Before an existing library is migrated,
+  a complete copy is kept as ``library.before-v<old version>.db`` (never overwritten), so an update
+  can always be undone by hand.
 * Recovery: a file that is not a database or fails ``PRAGMA quick_check`` is moved aside
   (``library.corrupt-<time>.db``) and a fresh database is created; ``recovered`` explains
   what happened so the UI can say so once. A database written by a *newer* version is never
@@ -305,6 +307,8 @@ class LibraryDatabase:
                 self._migrate(conn)
                 return conn
             conn.execute("PRAGMA journal_mode = WAL")
+            if 0 < version < SCHEMA_VERSION:
+                self._keep_copy_before_migration(conn, version)
             self._migrate(conn)
             return conn
         except sqlite3.DatabaseError as exc:
@@ -329,6 +333,31 @@ class LibraryDatabase:
             conn.execute("PRAGMA journal_mode = WAL")
             self._migrate(conn)
             return conn
+
+    def before_migration_path(self, version: int) -> Path:
+        assert self.path is not None
+        return self.path.with_name(f"{self.path.stem}.before-v{version}{self.path.suffix}")
+
+    def _keep_copy_before_migration(self, conn: sqlite3.Connection, version: int) -> None:
+        """A whole, consistent copy of the library as it was, before a newer version changes it (M4)."""
+        target = self.before_migration_path(version)
+        if target.exists():
+            return  # the first copy is the one that matters
+        partial = target.with_name(target.name + ".partial")
+        try:
+            copy = sqlite3.connect(str(partial))
+            try:
+                conn.backup(copy)
+                copy.execute("PRAGMA journal_mode = DELETE")  # one self-contained file, no -wal or -shm
+            finally:
+                copy.close()
+            os.replace(partial, target)
+            log.info("library copied to %s before migrating from schema %s", target.name, version)
+        except (OSError, sqlite3.Error) as exc:
+            # Migrations are transactional, so going on is still safe; the copy is extra insurance.
+            log.warning("could not copy the library before migrating: %s", exc)
+            with suppress(OSError):
+                partial.unlink()
 
     def _quarantine(self) -> Path | None:
         assert self.path is not None

@@ -22,6 +22,8 @@ linked issue if you have new information.
 | Library | Adding a folder of 20,000 new files takes several minutes (about 6.5 measured); the app stays usable meanwhile | Add large collections one folder at a time | 0.11 |
 | Library | With 10,000 videos, opening the Videos page takes about a second | — | 0.11 |
 | Mini player | The mini player shows the title and controls, not the song's picture | — | 0.11 |
+| Music | The animation for songs with no picture uses about 5 % of the processor while it's on screen (0.2 % with the window minimised or on another page) | Minimise the window, or switch off animations in Windows (Settings → Accessibility → Visual effects) | 0.10.0 |
+| Sleep | The app has no special handling for sleep and wake; playing through sleep and wake is checked by hand before each release | — | 0.11 |
 | Library | Edited details and covers are kept by the app, not written into the files, so other apps don't see them | — | 0.10.0 |
 | Update | Going back to 0.9.1 after 0.10.0 starts 0.9.1 with an empty library (it can't read the newer one); your data stays for the next update | Keep using 0.10.0 | 0.10.0 |
 | Accessibility | Windows contrast themes are not followed: the app keeps its own dark theme (all text at least 5.6:1 contrast, control outlines at least 3:1) | — | 0.9.0 |

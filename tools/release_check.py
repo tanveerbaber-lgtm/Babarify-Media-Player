@@ -1,17 +1,28 @@
-"""Release check (M10): install, clean-environment run, AI worker, upgrade, rollback, uninstall.
+r"""Release check (M10; M4 of the offline player): install, clean run, upgrade, rollback, uninstall.
 
 Uses the installers in release/<version>/ (and a second, newer test build for the upgrade). It
 installs into a throw-away folder for the current user, runs the installed program with a
 stripped environment (Windows-only PATH, no Python/Babarify variables, empty profile folders),
 and checks every module the running program has loaded comes from the install folder or Windows.
-Usage:  python tools/release_check.py <old-setup.exe> <new-setup.exe> [out.json]
+
+With --real-data <folder>, a COPY of that settings-and-library folder (normally
+%APPDATA%\Babarify\Frame) is the profile's data, so the upgrade is tested on real data. The folder
+itself is only read.
+
+The throw-away install shares the app's Windows uninstall entry with a real install, and the
+final uninstall removes it: reinstall the real copy afterwards (with its own tasks). Close
+Babarify first: the installer closes running copies.
+
+Usage:  python tools/release_check.py <old-setup.exe> <new-setup.exe> [out.json] [--real-data DIR]
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -20,9 +31,6 @@ import winreg
 from pathlib import Path
 
 import psutil
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from ai_speech import make_speech
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -113,14 +121,47 @@ def run_app(app: Path, env: dict[str, str], media: Path, seconds: int = 20) -> d
     }
 
 
+def library_facts(folder: Path) -> dict[str, object]:
+    """What the library holds, read without changing it."""
+    db = folder / "library.db"
+    if not db.is_file():
+        return {}
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        facts: dict[str, object] = {"schema": conn.execute("PRAGMA user_version").fetchone()[0]}
+        for table in ("media", "folders", "playlists", "playlist_items", "history", "favourites"):
+            try:
+                facts[table] = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            except sqlite3.Error:
+                facts[table] = None
+        return facts
+    finally:
+        conn.close()
+
+
+def digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else ""
+
+
 def main() -> int:
-    old_setup, new_setup = Path(sys.argv[1]), Path(sys.argv[2])
-    out = Path(sys.argv[3]) if len(sys.argv) > 3 else ROOT / "release" / "release_check.json"
+    args = sys.argv[1:]
+    real_data: Path | None = None
+    if "--real-data" in args:
+        i = args.index("--real-data")
+        real_data = Path(args[i + 1])
+        del args[i : i + 2]
+    old_setup, new_setup = Path(args[0]), Path(args[1])
+    out = Path(args[2]) if len(args) > 2 else ROOT / "release" / "release_check.json"
     work = Path(tempfile.mkdtemp(prefix="babarify-release-check-"))
     target = work / "Babarify Media Player"
     profile = work / "profile"
     env = clean_env(profile)
     results: dict[str, object] = {}
+    data = profile / "APPDATA" / "Babarify" / "Frame"
+    if real_data is not None:
+        shutil.copytree(real_data, data, ignore=shutil.ignore_patterns("backup-*"))
+        results["real_data_before"] = library_facts(data)
+        settings_before = json.loads((data / "settings.json").read_text(encoding="utf-8"))
     mp4_before = reg_value(r"Software\Classes\.mp4", "")
 
     # 1. Fresh install of the older version, with "Open with".
@@ -140,33 +181,37 @@ def main() -> int:
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.write_text("user data", encoding="utf-8")
 
-    # 3. The packaged AI worker (needs a model; uses the development models if present).
-    models = ROOT / ".models" / "faster-whisper-tiny"
-    if models.is_dir():
-        wav, _ = make_speech(work / "speech")
-        done = subprocess.run(
-            [str(target / "ai" / "babarify-ai-worker.exe"), "--media", str(wav), "--model-dir", str(models),
-             "--srt", str(work / "s.srt"), "--cues", str(work / "c.json")],
-            capture_output=True, text=True, env=env, timeout=600,
-        )  # fmt: skip
-        lines = [json.loads(x) for x in done.stdout.splitlines() if x.startswith("{")]
-        results["ai_worker"] = {
-            "exit": done.returncode,
-            "done": next((m["done"] for m in lines if "done" in m), None),
-            "error": next((m["error"] for m in lines if "error" in m), None),
-        }
-
     # 4. Upgrade, then roll back to the older version.
     results["upgrade"] = install(new_setup, target, work / "install-new.log")
     app = app_of(new_setup, target)
     results["installed_version_new"] = file_version(app)
     results["run_new"] = run_app(app, env, MEDIA)
     results["data_kept_after_upgrade"] = marker.is_file() and settings.is_file()
+    if real_data is not None:
+        after = library_facts(data)
+        results["real_data_after_upgrade"] = after
+        before = results["real_data_before"]
+        assert isinstance(before, dict)
+        # The check itself plays one file, so history may grow by that one entry.
+        results["real_data_counts_kept"] = all(
+            after.get(k) == v or (k == "history" and isinstance(v, int) and after.get(k) in (v, v + 1))
+            for k, v in before.items()
+            if k != "schema"
+        )
+        results["copy_before_migration"] = sorted(p.name for p in data.glob("library.before-*"))
+        settings_after = json.loads(settings.read_text(encoding="utf-8"))
+        results["settings_changed_by_upgrade"] = sorted(
+            k for k in settings_before if k in settings_after and settings_after[k] != settings_before[k]
+        )
+        results["settings_lost_by_upgrade"] = sorted(k for k in settings_before if k not in settings_after)
+    library_after_upgrade = digest(data / "library.db")
     results["rollback"] = install(old_setup, target, work / "install-rollback.log")
     app = app_of(old_setup, target)
     results["installed_version_after_rollback"] = file_version(app)
     results["run_rollback"] = run_app(app, env, MEDIA)
     results["data_kept_after_rollback"] = marker.is_file() and settings.is_file()
+    # An older version never changes a newer library (it starts with an empty one in memory and says why).
+    results["library_untouched_by_rollback"] = digest(data / "library.db") == library_after_upgrade
 
     # 5. Silent uninstall: program and registry entries gone, user data kept.
     uninstaller = next(target.glob("unins*.exe"))
