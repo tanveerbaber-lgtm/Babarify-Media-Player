@@ -117,6 +117,7 @@ class Preferences:
     audio_effect: str = "none"  # a key of AUDIO_EFFECTS
     audio_device: str = ""  # 0.12: the sound output's id; "" = the Windows default
     volume_levelling: str = "off"  # 0.12: a key of VOLUME_LEVELLING, for songs only
+    network_streams: bool = False  # 0.12: streams and IPTV, off until the user switches them on
     controls_hide_delay_ms: int = 3000  # fullscreen auto-hide, 1000..10000 (whole seconds in the UI)
     start_fullscreen: bool = False
     autoplay_next_video: bool = False  # when a video ends with no queue, play the next one in its folder
@@ -143,6 +144,9 @@ class Preferences:
     colour_theme: str = DEFAULT_THEME  # a THEMES key
     background_picture: str = ""  # a picture of the person's own, behind the main pages
     always_on_top: bool = False  # the main window and the mini-player stay above other windows (M3)
+    check_updates: bool = True  # 0.12: ask GitHub once a day whether a newer version is out
+    skipped_update: str = ""  # a version the user chose not to hear about again
+    last_update_check: float = 0.0  # when the last check succeeded (seconds since 1970)
     show_status_bar: bool = False  # the line of technical details along the bottom of the window
     # The queue when the app last closed (M2), kept only while history is remembered. Never in a backup.
     last_queue: tuple[str, ...] = ()

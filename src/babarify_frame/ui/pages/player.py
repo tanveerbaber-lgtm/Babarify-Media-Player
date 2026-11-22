@@ -57,6 +57,7 @@ from babarify_frame.core.music import (
     next_in_folder,
     shuffled,
 )
+from babarify_frame.core.network import is_network_uri, stream_display_name
 from babarify_frame.library.database import LibraryDatabase, LibraryError
 from babarify_frame.library.history import SAVE_INTERVAL_MS, resume_position
 from babarify_frame.library.models import Bookmark
@@ -94,6 +95,10 @@ POSITION_REFRESH_MS = 100
 STATUS_REFRESH_TICKS = 10  # refresh engine diagnostics about once a second
 CURSOR_POLL_MS = 200
 VOLUME_STEP = 5
+# A live stream that drops is tried again after these waits (0.12): about a minute in all. One that played
+# for longer than RECONNECT_FRESH_S before dropping gets all its tries again.
+RECONNECT_DELAYS_S = (2, 4, 8, 15, 30)
+RECONNECT_FRESH_S = 15.0
 HAS_MEDIA = frozenset({S.LOADING, S.PLAYING, S.PAUSED, S.BUFFERING, S.ENDED})
 SEEKABLE = frozenset({S.PLAYING, S.PAUSED, S.BUFFERING, S.ENDED})
 TRACK_STATES = frozenset({S.PLAYING, S.PAUSED, S.BUFFERING, S.ENDED})  # engines accept track changes
@@ -155,6 +160,15 @@ class PlayerPage(QWidget):
         self._engine_bridge.delivered.connect(self._on_engine_created)
         self._engine_thread: threading.Thread | None = None
         self._pending_open: str | None = None
+        self._channel: tuple[str, str, str, str] | None = None  # IPTV: url, name, user agent, referrer (0.12)
+        # Live streams (0.12): reconnecting after a drop.
+        self._live_played = False  # the open stream reached Playing, so a drop is worth retrying
+        self._reconnecting = False
+        self._reconnect_attempt = 0
+        self._playing_since = 0.0
+        self._reconnect_timer = QTimer(self)
+        self._reconnect_timer.setSingleShot(True)
+        self._reconnect_timer.timeout.connect(self._reconnect_now)
         self._resume: tuple[str, int, bool] | None = None  # (uri, position, playing) across restarts
         self._resume_position: int | None = None
         self._resume_tracks: _TrackResume | None = None
@@ -318,6 +332,7 @@ class PlayerPage(QWidget):
             audio_effect=self._prefs.audio_effect,
             audio_device=self._prefs.audio_device,
             volume_levelling=self._prefs.volume_levelling,
+            network_streams=self._prefs.network_streams,
         )
 
         started = time.monotonic()
@@ -383,7 +398,25 @@ class PlayerPage(QWidget):
         self._show_message("info", "Restarting playback engine…", "")
         self.start_engine()  # actions update through state_changed; engine_ready(False) means failure
 
+    def open_channel(self, url: str, name: str, user_agent: str = "", referrer: str = "") -> None:
+        """An IPTV channel (0.12): shown by its name, fetched with its own headers, also when reconnecting."""
+        self._channel = (url, name, user_agent, referrer)
+        self.open_path(url)
+
+    @property
+    def channel_url(self) -> str | None:
+        """The IPTV channel playing now, if any."""
+        return (
+            self._channel[0] if self._channel is not None and self._current_uri == self._channel[0] else None
+        )
+
     def open_path(self, path: str, *, autoplay: bool = True, keep_queue: bool = False) -> None:
+        if self._channel is not None and self._channel[0] != path:
+            self._channel = None  # something else opened: the channel's name and headers don't apply
+        if not self._reconnecting:
+            self._cancel_reconnect()  # the user opened something: a dropped stream is left alone
+            self._reconnect_attempt = 0
+            self._live_played = False
         if not keep_queue:
             self._queue, self._queue_index = [], -1
             self._ordered_queue = None
@@ -400,7 +433,13 @@ class PlayerPage(QWidget):
             if start:
                 self._resume_position = start
                 self._resumed_from_history = True
-        self._media_name = Path(path).name if "://" not in path else path
+        # A stream shows its server and file name, never the query, which often carries an access token.
+        if is_network_uri(path):
+            self._media_name = stream_display_name(path)
+        else:
+            self._media_name = Path(path).name if "://" not in path else path
+        if self._channel is not None:
+            self._media_name = self._channel[1] or self._media_name
         self._set_preview(None)
         self._load_bookmarks()
         self._geometry = ("", "", 0.0)  # aspect, crop and zoom belong to a file
@@ -425,6 +464,8 @@ class PlayerPage(QWidget):
         if self._named_as_audio(path):
             self._show_audio_view()
         try:
+            headers = self._channel[2:] if self._channel is not None else ("", "")
+            self._controller.engine.set_stream_headers(*headers)
             self._controller.open(path, autoplay=autoplay)
         except PlaybackError as exc:
             self._show_error(exc)
@@ -455,6 +496,8 @@ class PlayerPage(QWidget):
             self._run(self._controller.toggle_play_pause)
 
     def stop(self) -> None:
+        self._cancel_reconnect()
+        self._live_played = False
         if self._state in HAS_MEDIA or self._state is S.ERROR:
             self._save_history()  # stopping resets the position to 0
             self._run(self._controller.stop)
@@ -598,8 +641,8 @@ class PlayerPage(QWidget):
         return self._history is not None and self._prefs.remember_history
 
     def _history_resume_point(self, path: str) -> int:
-        if not self.history_enabled or self._history is None:
-            return 0
+        if not self.history_enabled or self._history is None or is_network_uri(path):
+            return 0  # a stream always starts live (0.12)
         try:
             entry = self._history.history_for(path)
         except sqlite3.Error:
@@ -958,6 +1001,7 @@ class PlayerPage(QWidget):
             or prefs.audio_effect != self._prefs.audio_effect
             or prefs.audio_device != self._prefs.audio_device
             or prefs.volume_levelling != self._prefs.volume_levelling
+            or prefs.network_streams != self._prefs.network_streams
             or (style_changed and self._controller.capabilities().subtitle_style == "restart")
         )
         previews_changed = prefs.seek_previews != self._prefs.seek_previews
@@ -1346,7 +1390,8 @@ class PlayerPage(QWidget):
         elif isinstance(event, MediaInfoChanged):
             self._apply_media_info(event.info)
         elif isinstance(event, ErrorOccurred):
-            self._show_error(event.error)
+            if not self._reconnect_live_stream():
+                self._show_error(event.error)
         elif isinstance(event, Notice):
             # Non-fatal (e.g. an unreadable subtitle file): playback continues.
             self.status_changed.emit(event.message[:1].upper() + event.message[1:])
@@ -1384,11 +1429,20 @@ class PlayerPage(QWidget):
                 self._run(lambda: self._controller.seek(position))
                 if self._resumed_from_history:
                     self.status_changed.emit(f"Resumed at {format_time(position)} · Home starts over")
+        if state is S.PLAYING and self._is_live_stream():
+            self._live_played = True
+            if self._reconnecting:
+                self._reconnecting = False
+                self.status_changed.emit("Reconnected")
+            self._playing_since = time.monotonic()
         if state in (S.PLAYING, S.PAUSED) and not self._play_recorded:
             self._record_play()
         elif state is S.PAUSED:
             self._save_history()
         elif state is S.ENDED:
+            if self._reconnect_live_stream():  # a live stream doesn't end: the connection dropped
+                self.state_changed.emit(state)
+                return
             a, b = self._ab
             if a is not None and b is not None:  # B was at (or past) the end: keep repeating
                 QTimer.singleShot(0, lambda: self.seek_to(a))
@@ -1478,6 +1532,49 @@ class PlayerPage(QWidget):
         if info and info.audio_codec:
             parts.append(info.audio_codec)
         self.status_changed.emit(" · ".join(p for p in parts if p))
+
+    # ------------------------------------------------ live streams (0.12)
+    def _is_live_stream(self) -> bool:
+        return self._current_uri is not None and is_network_uri(self._current_uri) and not self._duration_ms
+
+    def _reconnect_live_stream(self) -> bool:
+        """A live stream that was playing dropped: try again, waiting longer each time, for about a minute.
+        False when it isn't one (a file, a stream that never played, or after the last try)."""
+        if not self._live_played or self._current_uri is None or not is_network_uri(self._current_uri):
+            return False
+        if self._playing_since and time.monotonic() - self._playing_since > RECONNECT_FRESH_S:
+            self._reconnect_attempt = 0  # it played for a while: this is a new drop, with all its tries
+        self._playing_since = 0.0
+        if self._reconnect_attempt >= len(RECONNECT_DELAYS_S):
+            self._live_played = False
+            self._reconnecting = False  # given up: the error is shown
+            return False
+        delay = RECONNECT_DELAYS_S[self._reconnect_attempt]
+        self._reconnect_attempt += 1
+        self.status_changed.emit(
+            f"Connection lost · reconnecting in {delay} s "
+            f"(try {self._reconnect_attempt} of {len(RECONNECT_DELAYS_S)})"
+        )
+        self._reconnect_timer.start(delay * 1000)
+        return True
+
+    def _reconnect_now(self) -> None:
+        uri = self._current_uri
+        if uri is None or not self.engine_is_ready:
+            return
+        self._reconnecting = True
+        try:
+            self.open_path(uri, keep_queue=True)
+        finally:
+            self._reconnecting = self._state is not S.PLAYING
+
+    def _cancel_reconnect(self) -> None:
+        self._reconnect_timer.stop()
+        self._reconnecting = False
+
+    @property
+    def reconnecting(self) -> bool:
+        return self._reconnect_timer.isActive() or self._reconnecting
 
     def _show_error(self, error: PlaybackError) -> None:
         self.last_error = f"{error.code.value}: {error.detail}" if error.detail else error.code.value

@@ -52,6 +52,7 @@ GLYPHS = {
     "heart": "\ue00b",
     "heart_filled": "\ueb52",
     "playlists": "\ue8fd",  # BulletedList
+    "tv": "\ue7f4",  # TVMonitor (0.12)
     "library": "",  # Library
 }
 

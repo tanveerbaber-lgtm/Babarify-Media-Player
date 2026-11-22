@@ -16,8 +16,12 @@ Findings encoded here (see docs/milestones/M1/benchmark-report.md):
   maps "ended with nothing decoded" to MEDIA_OPEN_FAILED.
 * No TimeChanged while paused; seeking an ended player needs a restart; MPEG-TS/PS
   and Ogg report streams and video size late. Each is handled below.
-* Local files only. libVLC is started with ``--no-lua`` so its Lua scripts never fetch artwork or pages
-  on their own; network addresses are refused before they reach the engine (``contracts``).
+* Network streams (M8): libVLC follows HTTP redirects to any scheme (file: included) and has
+  no option against it, so http/https go through ``stream_proxy`` and libVLC is started with
+  ``--no-lua`` (Lua playlist scripts fetch pages on their own). A server that accepts the
+  connection and never answers leaves libVLC "opening" forever: an open timeout ends it.
+  Remote playlists end at once with their entries as sub-items; only web/rtsp entries are
+  played.
 """
 
 from __future__ import annotations
@@ -56,6 +60,7 @@ from babarify_frame.core.models import (
     TrackKind,
 )
 from babarify_frame.core.music import AUDIO_EFFECTS
+from babarify_frame.core.network import STREAM_SCHEMES, is_network_uri, uri_scheme, validate_stream_url
 from babarify_frame.playback.adapters._engine_paths import add_dll_dir, find_vlc_dir
 from babarify_frame.playback.adapters.libvlc_audio import (
     LIMITER_ARGS,
@@ -66,6 +71,7 @@ from babarify_frame.playback.adapters.libvlc_audio import (
 )
 from babarify_frame.playback.contracts import EngineBase
 from babarify_frame.playback.factory import EngineProbe
+from babarify_frame.playback.stream_proxy import get_proxy
 
 S = PlaybackState
 _log = logging.getLogger(__name__)
@@ -130,8 +136,10 @@ _SUB_MARGIN = {
     SubtitlePosition.HIGH: 300,
 }
 EXTERNAL_SUBTITLE_TIMEOUT_S = 2.5
-# Instance options for every player instance. --no-lua: Lua playlist and artwork scripts would fetch
-# web pages on their own; the player is local only.
+OPEN_TIMEOUT_S = 30.0  # network streams: give up if nothing plays by then (M8)
+MAX_PLAYLIST_DEPTH = 3  # a playlist entry that is itself a playlist, and so on
+# Instance options for every player instance. --no-lua: Lua playlist and artwork scripts would fetch web
+# pages on their own, around the stream proxy (M8).
 BASE_ARGS = ("--no-video-title-show", "--no-lua", *LIMITER_ARGS)
 # File tags shown in the media information panel (libVLC Meta name, label).
 _META_FIELDS = (
@@ -363,11 +371,15 @@ class _RawStats(ctypes.Structure):
 
 class LibVlcEngine(EngineBase):
     name = "libvlc"
-    allowed_schemes = frozenset({"file"})
+    allowed_schemes = frozenset({"file"}) | STREAM_SCHEMES
 
     def __init__(self, options: EngineOptions | None = None, extra_args: tuple[str, ...] = ()) -> None:
         super().__init__()
         self._options = options or EngineOptions()
+        # Off until switched on (0.12): without it a stream address is refused before libVLC sees it.
+        self.allowed_schemes = frozenset({"file"}) | (
+            STREAM_SCHEMES if self._options.network_streams else set()
+        )
         self._extra_args = extra_args
         self._vlc: Any = None
         self._instance: Any = None
@@ -396,9 +408,14 @@ class LibVlcEngine(EngineBase):
         self._filters: FilterChain | None = None
         self.levelling_applied = ""  # the ReplayGain mode last set on the audio output (0.12)
         self._song = False  # the open file is a song: volume levelling applies to it
+        self._stream_headers = ("", "")  # an IPTV channel's user agent and referrer (0.12)
         self._eq_presets: tuple[str, ...] = ()
         self._eq_bands: tuple[int, ...] = ()
         # Network streams (M8)
+        self._open_generation = 0
+        self._open_started = 0.0
+        self._open_timer: threading.Timer | None = None
+        self._playlist_depth = 0
 
     # ------------------------------------------------------------ setup
     def _do_initialize(self) -> None:
@@ -474,6 +491,7 @@ class LibVlcEngine(EngineBase):
             supports_frame_step=True,
             supports_frame_back_step=False,  # libVLC 3 can only step forward
             supports_snapshot=True,
+            network_schemes=STREAM_SCHEMES,
             supports_chapters=True,
             subtitle_style="restart",  # style is an instance option: a new engine applies it
             max_delay_ms=60_000,
@@ -484,6 +502,7 @@ class LibVlcEngine(EngineBase):
                 "Brightness and contrast look stronger with software decoding than with hardware "
                 "decoding (different libVLC filters).",
                 "Rotation and flips restart playback at the same position.",
+                "Web streams are fetched by Babarify's own loopback proxy (http/https redirects only).",
             ),
         )
 
@@ -543,12 +562,22 @@ class LibVlcEngine(EngineBase):
         self._confirmed = False
         self._loading_target = None
         self._pending_seek = None
+        self._cancel_open_timer()
+        self._open_generation += 1  # a pending timeout belongs to the previous media
+        self._playlist_depth = 0
         self._open_location(uri)
 
     def _open_location(self, uri: str) -> None:
-        """Load the local file ``uri`` (already validated) into the player and start it."""
+        """Load ``uri`` (validated) into the player and start it; network addresses get the open
+        timeout, and http/https go through the stream proxy."""
         old = self._media
-        self._media = self._instance.media_new_path(uri)
+        if is_network_uri(uri):
+            web = uri_scheme(uri) in ("http", "https")
+            location = get_proxy().wrap(uri, *self._stream_headers) if web else uri
+            self._media = self._instance.media_new_location(location)
+            self._start_open_timer()
+        else:
+            self._media = self._instance.media_new_path(uri)
         # Must be a per-media option: libVLC 3.0.24 silently ignores --avcodec-hw at instance level
         # (M4 finding: "Off" kept using D3D11VA until this was moved here).
         self._media.add_option(f":avcodec-hw={'any' if self._options.hardware_decoding else 'none'}")
@@ -561,6 +590,40 @@ class LibVlcEngine(EngineBase):
             old.release()
         if self._player.play() != 0:
             self._fail(PlaybackError(ErrorCode.MEDIA_OPEN_FAILED, self._last_error()))
+
+    def _start_open_timer(self) -> None:
+        self._cancel_open_timer()
+        self._open_generation += 1
+        self._open_started = time.monotonic()
+        timer = threading.Timer(OPEN_TIMEOUT_S, self._on_open_timeout, args=(self._open_generation,))
+        timer.daemon = True
+        self._open_timer = timer
+        timer.start()
+
+    def _cancel_open_timer(self) -> None:
+        if self._open_timer is not None:
+            self._open_timer.cancel()
+            self._open_timer = None
+
+    def _on_open_timeout(self, generation: int) -> None:
+        if generation == self._open_generation and self.state is S.LOADING:
+            self._defer(self._give_up_opening, generation)
+
+    def _give_up_opening(self, generation: int) -> None:
+        if generation != self._open_generation or self.state is not S.LOADING or self._player is None:
+            return
+        self._player.stop()  # not a user stop: the Stopped event is ignored
+        self._fail(PlaybackError(ErrorCode.NETWORK_ERROR, f"nothing played within {OPEN_TIMEOUT_S:.0f} s"))
+
+    def _network_error(self, fallback: str) -> PlaybackError:
+        proxy = get_proxy()
+        reasons = proxy.failures_since(self._open_started) if self._open_started else []
+        if reasons:
+            return PlaybackError(ErrorCode.NETWORK_ERROR, reasons[-1])
+        removed = proxy.removed_since(self._open_started) if self._open_started else 0
+        if removed:
+            fallback = f"{removed} playlist entries were removed because they are not web addresses"
+        return PlaybackError(ErrorCode.NETWORK_ERROR, fallback)
 
     def _do_play(self) -> None:
         state = self.state
@@ -709,6 +772,9 @@ class LibVlcEngine(EngineBase):
             effect = AUDIO_EFFECTS.get(self._options.audio_effect, "")
             self._filters.apply(self._player, filter_chain(values is not None, effect, boost > 0))
 
+    def set_stream_headers(self, user_agent: str, referrer: str) -> None:
+        self._stream_headers = (user_agent, referrer)
+
     # ------------------------------------------------ sound output (0.12)
     def audio_devices(self) -> tuple[tuple[str, str], ...]:
         player = getattr(self, "_player", None)
@@ -793,6 +859,7 @@ class LibVlcEngine(EngineBase):
         self._player.set_rate(rate)
 
     def _do_close(self) -> None:
+        self._cancel_open_timer()
         try:
             # Stop receiving log lines first; the shared instance itself stays alive (R20).
             if self._shared is not None:
@@ -848,6 +915,7 @@ class LibVlcEngine(EngineBase):
         self._transition(S.PAUSED)
 
     def _confirm_media(self) -> None:
+        self._cancel_open_timer()
         if not self._confirmed:
             self._confirmed = True
             self._enter_target_if_confirmed()
@@ -875,11 +943,63 @@ class LibVlcEngine(EngineBase):
         stats = self.playback_stats()
         decoded = stats.get("decoded_video", 0) + stats.get("decoded_audio", 0)
         if self.get_playback_state().position_ms == 0 and decoded == 0:
-            self._fail(PlaybackError(ErrorCode.MEDIA_OPEN_FAILED, self._last_error()))
+            if self.state is S.LOADING and self._open_playlist_entry():
+                return
+            if self._uri is not None and is_network_uri(self._uri):
+                self._fail(self._network_error("the address did not return playable media"))
+            else:
+                self._fail(PlaybackError(ErrorCode.MEDIA_OPEN_FAILED, self._last_error()))
         else:
             self._end_reached()
 
+    def _open_playlist_entry(self) -> bool:
+        """A playlist ends at once and lists its entries as sub-items (M8 spike). Play the first
+        web or rtsp entry; file:, vlc: and every other scheme are skipped. Returns False when
+        there is nothing to play (the caller reports the failure)."""
+        media = self._media
+        items = media.subitems() if media is not None else None
+        if items is None:
+            return False
+        try:
+            mrls = [items.item_at_index(i).get_mrl() or "" for i in range(min(items.count(), 1000))]
+        finally:
+            items.release()
+        if not mrls:
+            return False
+        if self._playlist_depth >= MAX_PLAYLIST_DEPTH:
+            self._fail(PlaybackError(ErrorCode.UNSUPPORTED, "playlists nested too deeply"))
+            return True
+        proxy = get_proxy()
+        skipped, target = 0, None
+        for mrl in mrls:
+            candidate = proxy.unwrap(mrl) or mrl
+            try:
+                target = validate_stream_url(candidate)
+                break
+            except PlaybackError:
+                skipped += 1
+        skipped += proxy.removed_since(self._open_started) if self._open_started else 0
+        if target is None:
+            self._fail(
+                PlaybackError(
+                    ErrorCode.UNSUPPORTED, f"the playlist has no web or rtsp entries ({skipped} skipped)"
+                )
+            )
+            return True
+        if skipped:
+            self._notice(
+                ErrorCode.UNSUPPORTED, f"skipped {skipped} playlist entries that are not web addresses"
+            )
+        self._playlist_depth += 1
+        self._confirmed = False
+        self._open_location(target)
+        return True
+
     def _on_error(self, _event: Any) -> None:
+        if self._uri is not None and is_network_uri(self._uri):
+            self._cancel_open_timer()
+            self._fail(self._network_error(self._last_error()))
+            return
         code = ErrorCode.MEDIA_OPEN_FAILED if self.state is S.LOADING else ErrorCode.ENGINE_FAILURE
         self._fail(PlaybackError(code, self._last_error()))
 
@@ -922,7 +1042,7 @@ class LibVlcEngine(EngineBase):
 
     def _read_metadata(self, media: Any) -> tuple[tuple[str, str], ...]:
         meta = self._vlc.Meta
-        file_name = Path(self._uri).name if self._uri else ""
+        file_name = Path(self._uri).name if self._uri and not is_network_uri(self._uri) else ""
         out = []
         for name, label in _META_FIELDS:
             value = media.get_meta(getattr(meta, name))

@@ -108,7 +108,12 @@ def main(argv: Sequence[str] | None = None, factory: EngineFactory | None = None
 
     preview = libvlc_preview if args.engine == "libvlc" else None  # previews need libVLC (M8)
     window = MainWindow(
-        factory, icon, engine_name=args.engine, library=create_library(), preview_factory=preview
+        factory,
+        icon,
+        engine_name=args.engine,
+        library=create_library(),
+        preview_factory=preview,
+        update_check=single,  # the real app only: never a smoke test or release check
     )
     window.show()
     window.start_engine()

@@ -4,8 +4,9 @@ It never decodes media. Time only moves when ``advance()`` is called.
 
 Mock URIs: ``mock://<name>?duration=<ms>&fail=open&chapters=<n>`` (all parameters optional;
 ``chapters`` splits the duration into n equal chapters, ``duration=0`` is a live stream).
-Existing local files are also accepted and get ``default_duration_ms``. Network addresses are
-refused, as with the real engine.
+Existing local files are also accepted and get ``default_duration_ms``. http/https/rtsp
+addresses are simulated streams (M8): the host ``fail.invalid`` gives a network error, and
+the query takes the same parameters as mock URIs; without ``duration`` a stream is live.
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ from babarify_frame.core.models import (
     TrackInfo,
     TrackKind,
 )
+from babarify_frame.core.network import STREAM_SCHEMES, is_network_uri
 from babarify_frame.playback.contracts import EngineBase
 
 S = PlaybackState
@@ -45,7 +47,7 @@ _TINY_PNG = bytes.fromhex(
 
 class MockEngine(EngineBase):
     name = "mock"
-    allowed_schemes = frozenset({"mock", "file"})
+    allowed_schemes = frozenset({"mock", "file"}) | STREAM_SCHEMES
 
     def __init__(
         self,
@@ -56,6 +58,9 @@ class MockEngine(EngineBase):
     ) -> None:
         super().__init__()
         self.options = options or EngineOptions()
+        self.allowed_schemes = frozenset({"mock", "file"}) | (
+            STREAM_SCHEMES if self.options.network_streams else frozenset()
+        )
         self.subtitle_style = self.options.subtitle_style
         self.picture = PictureSettings()
         self.geometry: tuple[str, str, float] = ("", "", 0.0)
@@ -66,6 +71,7 @@ class MockEngine(EngineBase):
         self.window_id: int | None = None
         self.calls: list[str] = []
         self.devices: tuple[tuple[str, str], ...] = (("mock-speakers", "Mock speakers"),)  # 0.12
+        self.stream_headers = ("", "")
         self.closed_resources = False
         self._pending: MediaInfo | None = None
 
@@ -90,6 +96,7 @@ class MockEngine(EngineBase):
             supports_frame_step=True,
             supports_frame_back_step=False,
             supports_snapshot=True,
+            network_schemes=STREAM_SCHEMES,
             supports_chapters=True,
             hardware_decoding="unavailable",
             notes=("Simulated engine: no real decoding.",),
@@ -100,6 +107,9 @@ class MockEngine(EngineBase):
         return {"engine": "mock", "decoder": decoder, "hwdec": "none"}
 
     # ------------------------------------------------------------ hooks
+    def set_stream_headers(self, user_agent: str, referrer: str) -> None:
+        self.stream_headers = (user_agent, referrer)
+
     def audio_devices(self) -> tuple[tuple[str, str], ...]:
         return self.devices
 
@@ -112,11 +122,17 @@ class MockEngine(EngineBase):
     def _do_open(self, uri: str, autoplay: bool) -> None:
         self.calls.append(f"open:{uri}")
         parts = urlsplit(uri)
-        params = parse_qs(parts.query) if parts.scheme == "mock" else {}
+        network = is_network_uri(uri)
+        params = parse_qs(parts.query) if parts.scheme == "mock" or network else {}
+        if network and parts.hostname == "fail.invalid":
+            self._fail(
+                PlaybackError(ErrorCode.NETWORK_ERROR, "the server name fail.invalid could not be found")
+            )
+            return
         if params.get("fail") == ["open"]:
             self._fail(PlaybackError(ErrorCode.MEDIA_OPEN_FAILED, f"simulated open failure: {uri}"))
             return
-        default = self.default_duration_ms
+        default = 0 if network else self.default_duration_ms
         duration = int(params.get("duration", [default])[0])
         count = int(params.get("chapters", ["0"])[0])
         chapters = (

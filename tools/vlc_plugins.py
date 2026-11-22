@@ -6,10 +6,12 @@ plugin code (the DLL is mapped with DONT_RESOLVE_DLL_REFERENCES: no imports, no 
 decides which plugins the release ships:
 
 * EXCLUDED_DIRS / EXCLUDED: capture devices, disc access (DVD/Blu-ray CSS/AACS concerns, M1),
-  conditional access, every network protocol (since 0.11 the player opens local files only), control
+  conditional access, network protocols Babarify does not offer (0.12 offers http/https through its
+  proxy, rtsp and multicast udp/rtp, and only once the user switches network streams on), control
   interfaces, Lua, service discovery, renderers (Chromecast), visualisations, stream output, muxers and
   encoders.
-* Everything else (local file access, demuxers, decoders, audio/video output, filters, packetizers) is kept.
+* Everything else (file, http, https, rtsp, udp and rtp access, demuxers, decoders, audio/video output,
+  filters, packetizers) is kept.
 
 Usage:
   python tools/vlc_plugins.py audit  [vlc_dir] [out.json]   list every plugin and its licence
@@ -66,12 +68,11 @@ EXCLUDED = {
     "libcdda_plugin.dll": "audio CD access",
     "libvcd_plugin.dll": "VCD access",
     "libaribcam_plugin.dll": "ARIB conditional access",
-    # Network protocols: the player opens local files only (0.11).
-    "libhttp_plugin.dll": "http", "libhttps_plugin.dll": "https", "liblive555_plugin.dll": "rtsp",
+    # Network protocols Babarify does not offer (0.12 keeps http, https, rtsp, udp and rtp: streams, IPTV).
     "libftp_plugin.dll": "ftp", "libsftp_plugin.dll": "sftp", "libsmb_plugin.dll": "smb",
     "libnfs_plugin.dll": "nfs", "libaccess_mms_plugin.dll": "mms", "libvnc_plugin.dll": "vnc",
     "libaccess_srt_plugin.dll": "srt", "librist_plugin.dll": "rist", "libsatip_plugin.dll": "SAT>IP",
-    "libudp_plugin.dll": "udp", "librtp_plugin.dll": "rtp", "libtcp_plugin.dll": "raw tcp",
+    "libtcp_plugin.dll": "raw tcp",
     "libaccess_concat_plugin.dll": "concatenated inputs",
     "libsdp_plugin.dll": "SDP sessions",
     # Renderers and network outputs.
