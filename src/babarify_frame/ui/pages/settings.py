@@ -451,6 +451,9 @@ class SettingsPage(QWidget):
         card = QFrame()
         card.setObjectName("card")
         card.setMaximumWidth(720)
+        # Never shorter than it needs: Qt underestimates a card with wrapped text and squeezed its buttons
+        # until their names were cut off (0.12, Privacy).
+        card.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         box = QVBoxLayout(card)
         box.setContentsMargins(theme.L, theme.M, theme.L, theme.L)
         box.setSpacing(theme.M)

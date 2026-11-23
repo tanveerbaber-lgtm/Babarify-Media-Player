@@ -34,20 +34,26 @@ val VISUAL_STYLES = listOf(
 object ColourThemes {
     data class Choice(val key: String, val label: Int, val style: Int?)
 
-    /** The first is the default, drawn from the desktop app's colours. */
+    /** The seven themes of the desktop app's theme gallery (0.12), in its order. The first is the default. */
     val ALL = listOf(
         Choice("", R.string.theme_ocean, null),
-        Choice("sunset", R.string.theme_sunset, R.style.Colours_Sunset),
-        Choice("forest", R.string.theme_forest, R.style.Colours_Forest),
+        Choice("aurora", R.string.theme_aurora, R.style.Colours_Aurora),
         Choice("violet", R.string.theme_violet, R.style.Colours_Violet),
         Choice("amber", R.string.theme_amber, R.style.Colours_Amber),
-        Choice("rose", R.string.theme_rose, R.style.Colours_Rose),
+        Choice("midnight", R.string.theme_midnight, R.style.Colours_Midnight),
+        Choice("neon", R.string.theme_neon, R.style.Colours_Neon),
         Choice("light", R.string.theme_light, R.style.Colours_Light),
     )
 
+    /** Retired themes, and the nearest of the seven that a saved choice moves to. */
+    private val RETIRED = mapOf("sunset" to "amber", "forest" to "aurora", "rose" to "neon")
+
     fun isLight(choice: Choice): Boolean = choice.key == "light"
 
-    fun current(preferences: Preferences): Choice = ALL.firstOrNull { it.key == preferences.colourTheme } ?: ALL.first()
+    fun current(preferences: Preferences): Choice {
+        val key = preferences.colourTheme.let { RETIRED[it] ?: it }
+        return ALL.firstOrNull { it.key == key } ?: ALL.first()
+    }
 }
 
 /** Lays the chosen colours over every screen as it opens, and refreshes screens left open underneath. */

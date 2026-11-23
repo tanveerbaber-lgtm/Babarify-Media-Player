@@ -68,8 +68,16 @@ class Capture:
 
 @pytest.fixture(scope="module")
 def loud(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    path = tmp_path_factory.mktemp("audio") / "loud.wav"
-    amplitude = 0.89 * 32767  # -1 dBFS
+    return tone(tmp_path_factory.mktemp("audio") / "loud.wav", 0.89)  # -1 dBFS
+
+
+@pytest.fixture(scope="module")
+def quiet(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return tone(tmp_path_factory.mktemp("audio") / "quiet.wav", 0.1)  # -20 dBFS: under the limiter at 200 %
+
+
+def tone(path: Path, level: float) -> Path:
+    amplitude = level * 32767
     frames = b"".join(
         struct.pack("<hh", s, s)
         for s in (round(amplitude * math.sin(2 * math.pi * 440 * n / RATE)) for n in range(RATE * 8))
@@ -87,7 +95,9 @@ def run(loud: Path) -> Iterator[Any]:
     engines: list[Any] = []
 
     def start(
-        options: EngineOptions | None = None, equalizer: EqualizerSettings | None = None
+        options: EngineOptions | None = None,
+        equalizer: EqualizerSettings | None = None,
+        media: Path | None = None,
     ) -> tuple[Any, Capture]:
         engine = default_factory().create("libvlc", options)
         engines.append(engine)
@@ -95,7 +105,7 @@ def run(loud: Path) -> Iterator[Any]:
         capture.install(engine._player, engine._vlc)
         if equalizer is not None:
             engine.set_equalizer(equalizer)
-        engine.open_media(str(loud))
+        engine.open_media(str(media or loud))
         deadline = time.monotonic() + 10
         while engine.get_playback_state().state is not S.PLAYING and time.monotonic() < deadline:
             time.sleep(0.05)
@@ -213,3 +223,44 @@ def test_the_chosen_output_device_is_used_while_connected() -> None:
         assert missing._player.audio_output_device_get() != "{not-connected}"
     finally:
         missing.close()
+
+
+def test_dragging_the_volume_through_boost_rebuilds_the_sound_chain_once(run: Any) -> None:
+    """0.12: each boost change rebuilt libVLC's audio filters, and on real speakers each rebuild restarts the
+    sound for a moment, so dragging above 100 % made it stutter. The equalizer and limiter are now added once,
+    on the first step past 100 %, and kept: up, down and back up again, nothing more is rebuilt.
+    (A capture can't hear that restart, so the rebuilds themselves are counted.)"""
+    engine, capture = run()
+    engine.set_volume(100)
+    capture.mark("steady")
+    rebuilds: list[int] = []
+    original = engine._apply_equalizer
+    engine._apply_equalizer = lambda: (rebuilds.append(engine._level), original())[1]
+    for level in [*range(101, 201, 2), *range(199, 79, -4), *range(84, 200, 3)]:  # up, down past 100, up
+        engine.set_volume(level)
+        time.sleep(0.02)
+    engine.set_volume(199)
+    time.sleep(0.6)
+    assert rebuilds == [101], f"{len(rebuilds)} rebuilds while dragging"  # once, on the first step past 100
+    capture.mark("boosted")
+    assert capture.clipped_percent("boosted") < 0.1  # the limiter is in place once the boost settles
+    assert capture.peak("boosted") > 0.8  # and the sound is as loud as it can be without clipping
+
+
+def test_changing_a_boost_that_is_on_follows_live_without_a_rebuild(run: Any, quiet: Path) -> None:
+    """0.12: from 100 % to 200 % the sound still caught at every rest of the slider, as each boost change
+    rebuilt the filters. Once boost is on, the equalizer now takes the new boost as it plays."""
+    engine, capture = run(media=quiet)
+    engine.set_volume(120)
+    capture.mark("on")  # turning boost on adds the equalizer and limiter: one rebuild, as before
+    capture.phase = "dragging"
+    rebuilds: list[int] = []
+    original = engine._apply_equalizer
+    engine._apply_equalizer = lambda: (rebuilds.append(engine._level), original())[1]
+    for step in range(41):  # about one second of dragging from 120 % to 200 %, with rests
+        engine.set_volume(120 + step * 2)
+        time.sleep(0.02 if step % 10 else 0.4)
+    capture.mark("louder")
+    assert rebuilds == [], f"{len(rebuilds)} rebuilds while the boost stayed on"
+    ratio = capture.peak("louder") / capture.peak("on")
+    assert 1.5 < ratio < 1.8, ratio  # 200 % against 120 %: 1.67 times as loud, live

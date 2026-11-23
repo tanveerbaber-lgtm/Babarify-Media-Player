@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QFileDialog,
+    QGridLayout,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -193,14 +194,16 @@ class PlaylistsPanel(QWidget):
     def __init__(self, service: LibraryService, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._service = service
-        row = QHBoxLayout(self)
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(theme.L)
+        # One grid (0.12): the lists side by side, ending level; then two button rows that line up across
+        # both columns, in the order they are used; the hint below.
+        grid = QGridLayout(self)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(theme.L)
+        grid.setVerticalSpacing(theme.M)
 
         left = QVBoxLayout()
         self.automatic = QListWidget()
         self.automatic.setAccessibleName("Automatic playlists")
-        self.automatic.setMaximumWidth(280)
         self.automatic.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         # All four lists show when there is room; in a short window (high scaling) it scrolls instead of
         # overlapping what is below it (M4).
@@ -211,50 +214,54 @@ class PlaylistsPanel(QWidget):
         left.addWidget(_label("Your playlists", "caption"))
         self.playlists = QListWidget()
         self.playlists.setAccessibleName("Playlists")
-        self.playlists.setMaximumWidth(280)
         left.addWidget(self.playlists, stretch=1)
-        buttons = QHBoxLayout()
-        self.new_button = QPushButton("New…")
-        self.rename_button = QPushButton("Rename…")
-        self.delete_button = QPushButton("Delete")
-        for button in (self.new_button, self.rename_button, self.delete_button):
-            buttons.addWidget(button)
-        left.addLayout(buttons)
-        files = QHBoxLayout()
-        self.import_button = QPushButton("Import…")
-        self.import_button.setAccessibleName("Import a playlist from an M3U file")
-        self.export_button = QPushButton("Export…")
-        self.export_button.setAccessibleName("Export the selected playlist as an M3U file")
-        self.import_button.clicked.connect(self.import_playlist)
-        self.export_button.clicked.connect(self.export_playlist)
-        files.addWidget(self.import_button)
-        files.addWidget(self.export_button)
-        left.addLayout(files)
-        row.addLayout(left)
+        grid.addLayout(left, 0, 0)
 
-        right = QVBoxLayout()
         self.items = QListWidget()
         self.items.setAccessibleName("Playlist items")
         # Songs are put in order by dragging them (M3), in the person's own playlists only.
         self.items.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
         self.items.setDefaultDropAction(Qt.DropAction.MoveAction)
         self.items.model().rowsMoved.connect(lambda *_args: self._dropped())
-        right.addWidget(self.items, stretch=1)
+        grid.addWidget(self.items, 0, 1)
+
+        self.new_button = QPushButton("New…")
+        self.rename_button = QPushButton("Rename…")
+        self.delete_button = QPushButton("Delete")
+        self.import_button = QPushButton("Import…")
+        self.import_button.setAccessibleName("Import a playlist from an M3U file")
+        self.export_button = QPushButton("Export…")
+        self.export_button.setAccessibleName("Export the selected playlist as an M3U file")
+        self.import_button.clicked.connect(self.import_playlist)
+        self.export_button.clicked.connect(self.export_playlist)
         self.play_button = QPushButton("Play")
         self.play_button.setObjectName("primary")
+        self.remove_button = QPushButton("Remove from playlist")
         self.up_button = QPushButton("Move up")
         self.down_button = QPushButton("Move down")
-        self.remove_button = QPushButton("Remove from playlist")
-        # Two short rows: one row of four was squeezed until the words were cut off at 200 % scaling (M4).
-        for pair in ((self.play_button, self.remove_button), (self.up_button, self.down_button)):
-            item_buttons = QHBoxLayout()
-            for button in pair:
-                item_buttons.addWidget(button)
-            item_buttons.addStretch(1)
-            right.addLayout(item_buttons)
+        for row, (on_left, on_right) in enumerate(
+            (
+                (
+                    (self.new_button, self.rename_button, self.delete_button),
+                    (self.play_button, self.remove_button),
+                ),
+                ((self.import_button, self.export_button), (self.up_button, self.down_button)),
+            ),
+            start=1,
+        ):
+            for column, buttons in enumerate((on_left, on_right)):
+                line = QHBoxLayout()
+                line.setSpacing(theme.S)
+                for button in buttons:
+                    button.setMinimumHeight(40)  # the bold Play button's letters need it
+                    line.addWidget(button)
+                line.addStretch(1)
+                grid.addLayout(line, row, column)
         self.hint = _label(ADD_HINT, "caption")
-        right.addWidget(self.hint)
-        row.addLayout(right, stretch=1)
+        grid.addWidget(self.hint, 3, 1)
+        grid.setColumnStretch(0, 2)
+        grid.setColumnStretch(1, 5)
+        grid.setRowStretch(0, 1)
 
         self.new_button.clicked.connect(self.new_playlist)
         self.rename_button.clicked.connect(self._rename)

@@ -30,7 +30,8 @@ DEFAULT_ENGINE = "libvlc"  # ADR-0001 (accepted, provisional)
 
 def load_icon() -> QIcon:
     icon = QIcon()
-    for px in (16, 32, 64, 256):
+    # Every size Windows asks for at 100-200% display scaling, so none is stretched (0.12).
+    for px in (16, 20, 24, 32, 40, 48, 64, 96, 128, 256):
         icon.addFile(str(ICON_DIR / f"babarify-frame-{px}.png"))
     return icon
 

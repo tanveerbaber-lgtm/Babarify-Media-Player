@@ -20,12 +20,37 @@ from PySide6.QtWidgets import (
 )
 
 from babarify_frame.core.models import PlaybackState
+from babarify_frame.core.music import VisualStyle
 from babarify_frame.ui import theme
+from babarify_frame.ui.audio_view import Visualizer
 from babarify_frame.ui.pages.player import PlayerPage
 from babarify_frame.ui.widgets import format_time, glyph_icon, plain_text
 
 POLL_MS = 500
 COVER = 220  # the panel's picture; the panel is 300 wide with its margins
+PANEL_WIDTH = 300
+# The room inside the panel: its width, less the card's outer margin (S left, L right, in the stylesheet), its
+# border and the layout's margins (0.12: without the outer margin, the video and title ran past the card).
+PANEL_INNER = PANEL_WIDTH - (theme.S + theme.L) - 2 - 2 * theme.L
+VIDEO_SIZE = (PANEL_INNER, PANEL_INNER * 9 // 16)  # the video, as wide as fits
+
+
+ZERO_WIDTH_SPACE = "​"
+LONGEST_UNBROKEN = 14
+
+
+def breakable(text: str) -> str:
+    """``text`` with invisible places to wrap: after _ . - ) and inside runs of letters with no break, so a
+    file name like "Red_Dawn_(2012)_Hindi_Dubbed.mkv" wraps onto lines instead of running off the panel."""
+    out: list[str] = []
+    run = 0
+    for char in text:
+        out.append(char)
+        run = 0 if char.isspace() else run + 1
+        if char in "_.-)/\\" or run >= LONGEST_UNBROKEN:
+            out.append(ZERO_WIDTH_SPACE)
+            run = 0
+    return "".join(out)
 
 
 class NowPlaying(QObject):
@@ -203,7 +228,7 @@ class PlayerBar(QFrame, _Controls):
         self.volume = QSlider(Qt.Orientation.Horizontal)
         self.volume.setAccessibleName("Volume")
         self.volume.setFixedWidth(110)
-        self.volume.setRange(0, 100)
+        self.volume.setRange(0, now.player.volume_maximum)  # up to 200 with boost, as on the Playing page
         self.volume.valueChanged.connect(lambda v: now.player.set_volume(v) if self._volume_by_user else None)
         self.volume_icon = _button("volume", "Mute", "🔊")
         self.volume_icon.clicked.connect(now.player.toggle_mute)
@@ -228,10 +253,12 @@ class PlayerBar(QFrame, _Controls):
         )
         if icon is not None:
             self.favourite_button.setIcon(icon)
-        level, _muted = player.volume_state()
-        if not self.volume.isSliderDown() and self.volume.value() != min(100, level):
+        level = player.controls.volume.value()  # the Playing page's slider holds the level, boost included
+        if self.volume.maximum() != player.volume_maximum:
+            self.volume.setRange(0, player.volume_maximum)
+        if not self.volume.isSliderDown() and self.volume.value() != level:
             self._volume_by_user = False
-            self.volume.setValue(min(100, level))
+            self.volume.setValue(level)
         self._volume_by_user = True
 
 
@@ -244,11 +271,11 @@ class NowPanel(QFrame, _Controls):
     def __init__(self, now: NowPlaying, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("nowPanel")
-        self.setFixedWidth(300)
+        self.setFixedWidth(PANEL_WIDTH)
         box = QVBoxLayout(self)
         box.setContentsMargins(theme.L, theme.L, theme.L, theme.L)
         box.setSpacing(theme.S)
-        heading = QLabel("Now playing")
+        heading = QLabel("Now Playing")
         heading.setObjectName("subtitle")
         box.addWidget(heading)
         self.cover = QPushButton()
@@ -259,6 +286,25 @@ class NowPanel(QFrame, _Controls):
         self.cover.setCursor(Qt.CursorShape.PointingHandCursor)
         self.cover.clicked.connect(self.open_player)
         box.addWidget(self.cover, alignment=Qt.AlignmentFlag.AlignHCenter)
+        # A song with no picture gets the moving bars, as on the Playing page.
+        self.visualizer = Visualizer()
+        self.visualizer.setFixedSize(COVER, COVER)
+        self.visualizer.setAccessibleName("Animation for the song")
+        self.visualizer.hide()
+        box.addWidget(self.visualizer, alignment=Qt.AlignmentFlag.AlignHCenter)
+        # A video plays here itself, live: the main window lends the Playing page's video to this slot (0.12).
+        self.video_slot = QFrame()
+        self.video_slot.setObjectName("panelVideo")
+        self.video_slot.setFixedSize(*VIDEO_SIZE)
+        # A window of its own, so the video's window inside moves with it whenever the panel's layout shifts
+        # (0.12: without it, the video stayed where it was first put when the cover above it hid).
+        self.video_slot.setAttribute(Qt.WidgetAttribute.WA_NativeWindow)
+        self.video_slot.setAttribute(Qt.WidgetAttribute.WA_DontCreateNativeAncestors)
+        self.video_slot.setToolTip("Show the Playing page")
+        slot = QVBoxLayout(self.video_slot)
+        slot.setContentsMargins(0, 0, 0, 0)
+        self.video_slot.hide()
+        box.addWidget(self.video_slot, alignment=Qt.AlignmentFlag.AlignHCenter)
         self.title = QLabel("Nothing is playing")
         self.title.setObjectName("subtitle")
         self.title.setWordWrap(True)
@@ -266,7 +312,12 @@ class NowPanel(QFrame, _Controls):
         self.artist = QLabel("")
         self.artist.setObjectName("muted")
         self.artist.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        self.artist.setWordWrap(True)
         plain_text(self.title, self.artist)
+        for label in (self.title, self.artist):
+            # Never wider than the panel: a long file name wraps inside it (0.12: one with no spaces pushed
+            # the panel's contents wider, cutting the name off and the video past its box).
+            label.setFixedWidth(VIDEO_SIZE[0])
         box.addWidget(self.title)
         box.addWidget(self.artist)
         self._build_controls(now, 52)
@@ -285,8 +336,22 @@ class NowPanel(QFrame, _Controls):
         box.addStretch(1)
         self._follow()
 
+    def follow_video(self) -> None:
+        """Show the video's place at once, when the main window lends or takes back the video."""
+        self._follow_details()
+
     def _follow_details(self) -> None:
         player = self._now.player
-        self.title.setText(player.display_title or "Nothing is playing")
-        self.artist.setText(player.display_artist)
-        self.cover.setIcon(_cover(player.cover_image, COVER - 8, player.has_video))
+        self.title.setText(breakable(player.display_title or "Nothing is playing"))
+        self.title.setToolTip(player.display_title)
+        self.artist.setText(breakable(player.display_artist))
+        animate = player.has_media and not player.has_video and player.cover_image is None
+        video = player.has_video and player.video_lent
+        self.visualizer.setVisible(animate and self.isVisible())
+        self.video_slot.setVisible(video)
+        self.cover.setVisible(not animate and not video)
+        if animate:
+            self.visualizer.set_style_choice(VisualStyle(player.visual_style))
+            self.visualizer.set_playing(self._now.playing)
+        elif not video:
+            self.cover.setIcon(_cover(player.cover_image, COVER - 8, player.has_video))

@@ -38,6 +38,7 @@ CONTINUE_LIMIT = 8
 RECENT_LIMIT = 8
 ADDED_LIMIT = 12
 ADDED_SIDE = 132  # Recently added covers (0.12)
+BANNER_LOGO = 170  # the banner logo's width: about 130 px tall, inside the banner's padding
 CARD_THUMB = QSize(192, 108)
 
 SHORTCUTS = (
@@ -196,6 +197,7 @@ class HomePage(QWidget):
             widget.hide()
         # One search across music and videos (M3); the window looks the words up.
         self.search = QLineEdit()
+        self.search.setObjectName("homeSearch")
         self.search.setPlaceholderText("Search your music and videos")
         self.search.setAccessibleName("Search music and videos")
         self.search.setClearButtonEnabled(True)
@@ -320,8 +322,9 @@ class HomePage(QWidget):
         text.addLayout(buttons)
         text.addStretch(1)
         row.addLayout(text, stretch=1)
+        self._logo_icon = logo
         self.banner_logo = QLabel()
-        self.banner_logo.setPixmap(brand_logo(logo, 220))
+        self.banner_logo.setPixmap(brand_logo(logo, BANNER_LOGO))  # fits inside the banner, headband and all
         self.banner_logo.setAccessibleName(f"{PRODUCT_NAME} logo")
         row.addWidget(self.banner_logo, alignment=Qt.AlignmentFlag.AlignVCenter)
         return banner
@@ -414,6 +417,7 @@ class HomePage(QWidget):
         return panel
 
     def refresh_theme(self) -> None:
+        self.banner_logo.setPixmap(brand_logo(self._logo_icon, BANNER_LOGO))  # light themes have their own
         icon = glyph_icon("drop", theme.CYAN, theme.TEXT_DISABLED, size=48)
         if self._drop_icon is not None and icon is not None:
             self._drop_icon.setPixmap(icon.pixmap(QSize(40, 40)))

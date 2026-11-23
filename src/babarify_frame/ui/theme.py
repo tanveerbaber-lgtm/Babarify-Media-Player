@@ -112,6 +112,16 @@ QFrame#navRail {{
 }}
 QScrollArea#railScroll {{ background: transparent; border: none; }}
 QLabel#railBrand {{ font-size: {FONT_SUBTITLE}pt; font-weight: 700; }}
+QToolButton#railToggle {{
+    background: {_rgba(SURFACE_RAISED, 0.95)}; border: 1px solid {_rgba(CYAN, 0.35)}; border-right: none;
+    border-top-left-radius: {RADIUS_M}px; border-bottom-left-radius: {RADIUS_M}px; padding: 0px;
+}}
+QToolButton#railToggle:hover {{ background: {_rgba(CYAN, 0.25)}; border-color: {CYAN}; }}
+QPushButton#railSectionToggle {{
+    text-align: left; border: none; background: transparent; color: {TEXT_MUTED};
+    font-size: {FONT_CAPTION}pt; padding: {XS}px {M}px 2px {M}px;
+}}
+QPushButton#railSectionToggle:hover {{ color: {TEXT}; }}
 QLabel#railSection {{ color: {TEXT_MUTED}; font-size: {FONT_CAPTION}pt; padding: {XS}px {M}px 2px {M}px; }}
 QPushButton#navButton {{
     text-align: left; padding: 0px {M}px; border: 1px solid transparent; border-radius: {RADIUS_M}px;
@@ -123,17 +133,13 @@ QPushButton#navButton:checked {{
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {_rgba(BLUE, 0.55)}, stop:1 {_rgba(CYAN, 0.12)});
 }}
 QPushButton#navButton:disabled {{ color: {TEXT_DISABLED}; }}
+QPushButton#navButton[folded="true"] {{ text-align: center; padding: 0px; }}
 QPushButton#navButton::menu-indicator {{ image: none; width: 0px; }}
-QFrame#topBar {{ background: transparent; }}
-QLineEdit#topSearch {{
+QLineEdit#homeSearch {{
     background: {_rgba(SURFACE, 0.85)}; border: 1px solid {_rgba(CYAN, 0.25)}; border-radius: 19px;
     padding: {S}px {L}px; min-height: 22px;
 }}
-QLineEdit#topSearch:focus {{ border: 1px solid {CYAN}; }}
-QToolButton#topButton {{
-    background: {_rgba(SURFACE, 0.85)}; border: 1px solid {_rgba(CYAN, 0.25)}; border-radius: 20px;
-}}
-QToolButton#topButton:hover {{ background: {SURFACE_RAISED}; border: 1px solid {CYAN}; }}
+QLineEdit#homeSearch:focus {{ border: 1px solid {CYAN}; }}
 QFrame#playerBar {{
     background: {_rgba(SURFACE, 0.92)}; border-top: 1px solid {_rgba(CYAN, 0.35)};
 }}
@@ -146,6 +152,7 @@ QPushButton#barCover, QPushButton#panelCover {{
     padding: 0px;
 }}
 QPushButton#barCover:hover, QPushButton#panelCover:hover {{ border: 1px solid {CYAN}; }}
+QFrame#panelVideo {{ background: black; border: none; }}
 QFrame#heroBanner {{
     border: 1px solid {_rgba(CYAN, 0.35)}; border-radius: 22px;
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {_rgba(BLUE, 0.50)},

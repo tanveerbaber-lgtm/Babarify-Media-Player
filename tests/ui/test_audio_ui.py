@@ -78,7 +78,7 @@ def test_a_video_keeps_the_video_surface(qtbot: QtBot, window: MainWindow) -> No
     player = window.player
     player.open_path("mock://clip?duration=60000")
     qtbot.waitUntil(lambda: player.state is S.PLAYING)
-    assert player._stage.currentWidget() is player.video
+    assert player._stage.currentWidget() is player._video_holder
 
 
 def test_no_picture_shows_the_animation_and_it_moves_only_while_playing(

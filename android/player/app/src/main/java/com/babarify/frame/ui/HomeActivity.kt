@@ -30,6 +30,10 @@ class HomeActivity : Activity() {
         setContentView(R.layout.activity_home)
         applySystemBarPadding(findViewById(R.id.homeRoot))
         findViewById<TextView>(R.id.homeTitle).brandColours()
+        // The light theme has its own logo, with the glow trimmed back for a pale page (0.12 branding).
+        if (ColourThemes.isLight(ColourThemes.current(com.babarify.frame.data.Preferences(this)))) {
+            findViewById<android.widget.ImageView>(R.id.homeLogo).setImageResource(R.drawable.brand_logo_light)
+        }
         AppIntro.playOnce(this)
         history = HistoryStore(this)
         library = LibraryStore(this)
@@ -53,6 +57,7 @@ class HomeActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
+        findViewById<TextView>(R.id.homeTitle).setText(greeting(java.time.LocalTime.now().hour))
         refreshRecent()
         nowPlaying.start()
     }
@@ -142,4 +147,11 @@ class HomeActivity : Activity() {
     private companion object {
         const val REQUEST_OPEN = 1
     }
+}
+
+/** The Home greeting for the hour of the day, as on the desktop app: both words capitalised. */
+fun greeting(hour: Int): Int = when (hour) {
+    in 5..11 -> R.string.greeting_morning
+    in 12..17 -> R.string.greeting_afternoon
+    else -> R.string.greeting_evening
 }

@@ -25,22 +25,30 @@ from babarify_frame.core.enhancements import PREAMP_UNITY_DB, EqualizerSettings
 _log = logging.getLogger(__name__)
 
 VLC_VAR_STRING = 0x0040
+VLC_VAR_FLOAT = 0x0050
 MAX_ENGINE_PREAMP_DB = 20.0  # libVLC's equalizer limit
 # libVLC's compressor set up as a limiter: fast attack, high ratio, ceiling just under full scale. It only
-# runs while the volume is above 100 %. Instance options: they apply wherever the compressor is in a chain.
+# acts while the volume is above 100 %. Instance options: they apply wherever the compressor is in a chain.
+# (0.12 tried a quicker release to let loud sound get louder: it was heard as noise, so it stays at 50 ms.)
+LIMITER_RATIO = 20.0
 LIMITER_ARGS = (
     "--compressor-rms-peak=1",
     "--compressor-attack=1.5",
     "--compressor-release=50",
     "--compressor-threshold=-1.5",
-    "--compressor-ratio=20",
+    f"--compressor-ratio={LIMITER_RATIO:g}",
     "--compressor-knee=1",
     "--compressor-makeup-gain=0",
 )
 
 
 class _Value(ctypes.Union):
-    _fields_ = (("i_int", ctypes.c_int64), ("psz_string", ctypes.c_char_p), ("p_address", ctypes.c_void_p))
+    _fields_ = (
+        ("i_int", ctypes.c_int64),
+        ("f_float", ctypes.c_float),
+        ("psz_string", ctypes.c_char_p),
+        ("p_address", ctypes.c_void_p),
+    )
 
 
 class _List(ctypes.Structure):
@@ -116,4 +124,24 @@ class FilterChain:
                     done = self._set(child, value, name) or done
         finally:
             self._core.vlc_list_release(children)  # releases the references the list holds
+        return done
+
+    def set_float(self, player: Any, name: bytes, value: float) -> bool:
+        """Set a number on the player (for the next audio output) and on its live audio output, whose
+        filters may follow it at once: the equalizer follows "equalizer-preamp" without being rebuilt
+        (0.12). False if no audio output had the variable."""
+        pointer = self._pointer(player)
+        self._core.var_SetChecked(pointer, name, VLC_VAR_FLOAT, _Value(f_float=value))
+        children = self._core.vlc_list_children(pointer)
+        if not children:
+            return False
+        done = False
+        try:
+            for i in range(children.contents.i_count):
+                child = ctypes.c_void_p(children.contents.p_values[i].p_address)
+                if self._core.var_Type(child, name) & 0xFF == VLC_VAR_FLOAT:
+                    result = self._core.var_SetChecked(child, name, VLC_VAR_FLOAT, _Value(f_float=value))
+                    done = result == 0 or done
+        finally:
+            self._core.vlc_list_release(children)
         return done

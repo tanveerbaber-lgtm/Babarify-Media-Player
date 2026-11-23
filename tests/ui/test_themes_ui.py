@@ -166,12 +166,12 @@ def side_bar(window: MainWindow) -> list[str]:
 def test_the_rail_follows_the_design(window: MainWindow) -> None:
     """The side bar of the 0.12 redesign: the pages, then Your library and Tools, the theme at the foot."""
     assert side_bar(window) == [
-        "Home", "Music", "Videos", "Now playing",
-        "Albums", "Artists", "Playlists", "Favourites", "Recently played",
+        "Home", "Music", "Videos", "Now Playing",
+        "Albums", "Artists", "Playlists", "Favourites", "Recently Played",
         "Equalizer", "Settings", "Theme",
     ]  # fmt: skip
     sections = [label.text() for label in window.findChildren(QLabel) if label.objectName() == "railSection"]
-    assert sections == ["Your library", "Tools"]
+    assert sections == ["Tools"] and window.library_toggle.text() == "Your Library"  # a drop-down (0.12)
     buttons = [b for b in window.findChildren(QPushButton) if b.objectName() == "navButton" and b.isVisible()]
     assert {b.width() for b in buttons} == {window.nav_home.width()}, "lined up"
     if real_display():  # with no display there is no Arial or icon font, so the sizes mean nothing
@@ -203,15 +203,35 @@ def test_music_videos_and_playlists_show_their_part_of_the_library(
 
 
 def test_the_name_and_logo_lead_the_side_bar(window: MainWindow) -> None:
-    """0.12 redesign: the headphones logo and the name at the top of the side bar; Home greets instead."""
-    from babarify_frame import TAGLINE
-
-    texts = [label.text() for label in window.findChildren(QLabel) if label.isVisibleTo(window)]
-    assert "Babarify" in texts and TAGLINE in texts
+    """0.12 branding: the neon mark with "BABARIFY MEDIA PLAYER" leads the side bar; Home greets."""
+    assert window._rail_wordmark.accessibleName() == "Babarify Media Player"
+    assert window._rail_wordmark.pixmap() is not None and not window._rail_wordmark.pixmap().isNull()
     assert window.windowTitle() == "Babarify Media Player"
     window.show_page(window.home)
     assert window.home.greeting.text() in ("Good Morning", "Good Afternoon", "Good Evening")
     assert window.home.banner_logo.pixmap() is not None and not window.home.banner_logo.pixmap().isNull()
+
+
+def test_light_themes_get_the_light_logos(window: MainWindow) -> None:
+    from babarify_frame.ui import widgets
+
+    choose(window, "light")
+    assert widgets._brand_file("babarify-wordmark").endswith("babarify-wordmark-light.png")
+    choose(window, "ocean")
+    assert widgets._brand_file("babarify-wordmark").endswith("babarify-wordmark.png")
+
+
+def test_your_library_opens_and_closes(window: MainWindow, tmp_path: Path) -> None:
+    """0.12: Your Library is a drop-down; closed, its entries hide; the choice is remembered."""
+    window.library_toggle.click()
+    assert not window.nav_albums.isVisible() and not window.nav_recent.isVisible()
+    assert not PreferencesStore(tmp_path / "settings.json").load().library_open
+    window.set_rail_folded(True)
+    assert window.nav_albums.isVisible()  # folded, every icon shows
+    window.set_rail_folded(False)
+    assert not window.nav_albums.isVisible()
+    window.library_toggle.click()
+    assert window.nav_albums.isVisible() and PreferencesStore(tmp_path / "settings.json").load().library_open
 
 
 def test_a_background_picture_goes_behind_the_pages_until_removed(window: MainWindow, tmp_path: Path) -> None:
@@ -367,7 +387,7 @@ def test_tv_joins_the_rail_only_while_streams_are_on(window: MainWindow, qtbot: 
     assert "TV" not in side_bar(window) and not window.tv_action.isVisible()
     window.settings.network_streams.setChecked(True)
     qtbot.waitUntil(lambda: "TV" in side_bar(window))
-    assert side_bar(window)[:5] == ["Home", "Music", "Videos", "TV", "Now playing"]
+    assert side_bar(window)[:5] == ["Home", "Music", "Videos", "TV", "Now Playing"]
     window.nav_tv.click()
     assert window.current_page() is window.tv
     window.settings.network_streams.setChecked(False)
@@ -394,4 +414,50 @@ def test_a_short_window_scrolls_the_side_bar(window: MainWindow, qtbot: QtBot) -
     qtbot.wait(50)
     scroll = window._rail.findChild(QScrollArea)
     assert scroll is not None and scroll.verticalScrollBar().maximum() > 0
-    assert {b.height() for b in window.findChildren(QPushButton) if b.objectName() == "navButton"} == {40}
+    assert {b.height() for b in window.findChildren(QPushButton) if b.objectName() == "navButton"} == {34}
+
+
+def test_the_side_bar_folds_to_its_icons_and_remembers(window: MainWindow, tmp_path: Path) -> None:
+    """0.12: the side bar's names can be hidden (its button, View → Side bar names, Ctrl+Shift+B)."""
+    from babarify_frame.ui.main_window import RAIL_FOLDED
+
+    window.rail_toggle.click()
+    assert window._rail.width() == RAIL_FOLDED and window.nav_home.text() == ""
+    assert window.nav_home.toolTip() and window.nav_home.accessibleName() == "Home"  # still named for readers
+    assert PreferencesStore(tmp_path / "settings.json").load().rail_folded
+    assert not window.rail_action.isChecked()
+    window.rail_action.setChecked(True)
+    assert (
+        window.nav_home.text() == "Home"
+        and not PreferencesStore(tmp_path / "settings.json").load().rail_folded
+    )
+
+
+def test_the_fold_arrow_sits_halfway_down_the_side_bar_edge(window: MainWindow, qtbot: QtBot) -> None:
+    """0.12, the owner's choice: an arrow on the side bar's edge, halfway down, instead of a menu button."""
+    from babarify_frame.ui.main_window import RAIL_FOLDED, RAIL_WIDTH
+
+    tab = window.rail_toggle
+    assert tab.parentWidget() is window._rail and tab.isVisible()
+
+    def centred() -> bool:
+        middle = window._rail.height() // 2
+        box = tab.geometry()
+        return box.right() == window._rail.width() - 1 and abs(box.center().y() - middle) <= 1
+
+    assert centred()
+    tab.click()
+    qtbot.waitUntil(lambda: window._rail.width() == RAIL_FOLDED and centred())
+    assert tab.accessibleName() == "Show the side bar"
+    tab.click()
+    qtbot.waitUntil(lambda: window._rail.width() == RAIL_WIDTH and centred())
+    window.resize(window.width(), window.height() - 120)
+    qtbot.waitUntil(centred)
+
+
+def test_the_theme_entry_lines_up_with_the_others(window: MainWindow) -> None:
+    assert window.nav_theme.menu() is None  # a menu attached to the button would shift its icon and text
+    assert (
+        window.nav_theme.x() == window.nav_settings.x()
+        and window.nav_theme.width() == window.nav_settings.width()
+    )
