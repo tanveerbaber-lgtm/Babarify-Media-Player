@@ -292,6 +292,11 @@ class PlaylistsPanel(QWidget):
             self.automatic.blockSignals(False)
         self._show_items()
 
+    def show_automatic(self, name: str) -> None:
+        """Open an automatic list by its name, as the side bar's Favourites and Recently played do (0.12)."""
+        if name in AUTOMATIC_LISTS:
+            self.automatic.setCurrentRow(AUTOMATIC_LISTS.index(name))
+
     def _automatic_chosen(self, row: int) -> None:
         if row >= 0:
             self.playlists.blockSignals(True)

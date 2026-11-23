@@ -49,6 +49,12 @@ def _accent_gradient() -> str:
     return f"qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {BLUE}, stop:1 {CYAN})"
 
 
+def _rgba(colour: str, alpha: float) -> str:
+    """``colour`` see-through: alpha 0 is invisible, 1 solid (glass-like panels and glows, 0.12)."""
+    r, g, b = (int(colour[i : i + 2], 16) for i in (1, 3, 5))
+    return f"rgba({r}, {g}, {b}, {round(alpha * 255)})"
+
+
 def _mix(colour: str, other: str, part: float) -> str:
     """``colour`` moved ``part`` of the way to ``other``, as #RRGGBB."""
     a = [int(colour[i : i + 2], 16) for i in (1, 3, 5)]
@@ -96,15 +102,59 @@ QMenu::item:disabled {{ color: {TEXT_DISABLED}; }}
 QMenu::item:checked {{ color: {CYAN}; }}
 QMenu::separator {{ height: 1px; background: {BORDER}; margin: {XS}px {S}px; }}
 
-/* Navigation rail */
-QFrame#navRail {{ background: {SURFACE}; border-right: 1px solid {BORDER}; }}
-QToolButton#navButton {{
-    border: none; border-radius: {RADIUS_M}px; padding: {S}px; margin: 2px {S}px;
-    color: {TEXT_MUTED}; font-size: {FONT_CAPTION}pt;
+/* The frame (0.12 redesign): a glowing page, glass-like panels, a side bar, a top bar, a player bar */
+QWidget#root {{
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {BG}, stop:0.55 {BG},
+                                stop:1 {_mix(BG, BLUE, 0.16)});
 }}
-QToolButton#navButton:hover {{ background: {SURFACE_RAISED}; color: {TEXT}; }}
-QToolButton#navButton:checked {{ background: {SURFACE_PRESSED}; color: {TEXT}; border-left: 3px solid {CYAN}; }}
-QToolButton#navButton:disabled {{ color: {TEXT_DISABLED}; }}
+QFrame#navRail {{
+    background: {_rgba(SURFACE, 0.82)}; border-right: 1px solid {_rgba(CYAN, 0.18)};
+}}
+QScrollArea#railScroll {{ background: transparent; border: none; }}
+QLabel#railBrand {{ font-size: {FONT_SUBTITLE}pt; font-weight: 700; }}
+QLabel#railSection {{ color: {TEXT_MUTED}; font-size: {FONT_CAPTION}pt; padding: {XS}px {M}px 2px {M}px; }}
+QPushButton#navButton {{
+    text-align: left; padding: 0px {M}px; border: 1px solid transparent; border-radius: {RADIUS_M}px;
+    background: transparent; color: {TEXT_MUTED}; font-size: {FONT_BODY}pt; font-weight: 400;
+}}
+QPushButton#navButton:hover {{ background: {_rgba(SURFACE_RAISED, 0.9)}; color: {TEXT}; }}
+QPushButton#navButton:checked {{
+    color: {TEXT}; font-weight: 700; border: 1px solid {_rgba(CYAN, 0.55)};
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {_rgba(BLUE, 0.55)}, stop:1 {_rgba(CYAN, 0.12)});
+}}
+QPushButton#navButton:disabled {{ color: {TEXT_DISABLED}; }}
+QPushButton#navButton::menu-indicator {{ image: none; width: 0px; }}
+QFrame#topBar {{ background: transparent; }}
+QLineEdit#topSearch {{
+    background: {_rgba(SURFACE, 0.85)}; border: 1px solid {_rgba(CYAN, 0.25)}; border-radius: 19px;
+    padding: {S}px {L}px; min-height: 22px;
+}}
+QLineEdit#topSearch:focus {{ border: 1px solid {CYAN}; }}
+QToolButton#topButton {{
+    background: {_rgba(SURFACE, 0.85)}; border: 1px solid {_rgba(CYAN, 0.25)}; border-radius: 20px;
+}}
+QToolButton#topButton:hover {{ background: {SURFACE_RAISED}; border: 1px solid {CYAN}; }}
+QFrame#playerBar {{
+    background: {_rgba(SURFACE, 0.92)}; border-top: 1px solid {_rgba(CYAN, 0.35)};
+}}
+QFrame#nowPanel {{
+    background: {_rgba(SURFACE, 0.85)}; border: 1px solid {_rgba(CYAN, 0.35)}; border-radius: {RADIUS_L}px;
+    margin: {S}px {L}px {L}px {S}px;
+}}
+QPushButton#barCover, QPushButton#panelCover {{
+    background: {_rgba(SURFACE_RAISED, 0.9)}; border: 1px solid {_rgba(CYAN, 0.2)}; border-radius: {RADIUS_M}px;
+    padding: 0px;
+}}
+QPushButton#barCover:hover, QPushButton#panelCover:hover {{ border: 1px solid {CYAN}; }}
+QFrame#heroBanner {{
+    border: 1px solid {_rgba(CYAN, 0.35)}; border-radius: 22px;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {_rgba(BLUE, 0.50)},
+                                stop:0.55 {_rgba(SURFACE, 0.70)}, stop:1 {_rgba(CYAN, 0.30)});
+}}
+QLabel#heroGreeting {{ font-size: 28pt; font-weight: 700; }}
+QLabel#sectionTitle {{
+    font-size: {FONT_SUBTITLE + 1}pt; font-weight: 700; border-left: 3px solid {CYAN}; padding-left: {S}px;
+}}
 
 /* Typography roles */
 QLabel#display {{ font-size: {FONT_DISPLAY}pt; font-weight: 700; }}

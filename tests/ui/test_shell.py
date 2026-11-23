@@ -91,8 +91,8 @@ def test_branding_and_home_page(window: MainWindow) -> None:
     assert not window.windowIcon().isNull()
     assert window.current_page() is window.home
     assert window.nav_home.isChecked()
-    texts = {label.text() for label in window.home.findChildren(pages.home.QLabel)}
-    assert {PRODUCT_NAME, TAGLINE} <= texts
+    texts = {label.text() for label in window.findChildren(pages.home.QLabel) if label.isVisibleTo(window)}
+    assert {"Babarify", TAGLINE} <= texts  # the side bar (0.12 redesign); the window title has the full name
 
 
 def test_icon_resources_exist() -> None:

@@ -51,12 +51,12 @@ def test_every_theme_meets_the_contrast_rules(key: str) -> None:
 
 def test_applying_a_theme_changes_the_colours_and_stylesheet() -> None:
     before = theme.STYLESHEET
-    theme.apply_theme("forest")
-    assert THEMES["forest"].bg == theme.BG
-    assert THEMES["forest"].accent2 == theme.CYAN
-    assert THEMES["forest"].accent in theme.ACCENT_GRADIENT
+    theme.apply_theme("aurora")
+    assert THEMES["aurora"].bg == theme.BG
+    assert THEMES["aurora"].accent2 == theme.CYAN
+    assert THEMES["aurora"].accent in theme.ACCENT_GRADIENT
     assert before != theme.STYLESHEET
-    assert THEMES["forest"].bg in theme.STYLESHEET
+    assert THEMES["aurora"].bg in theme.STYLESHEET
     assert THEMES["ocean"].bg not in theme.STYLESHEET
 
 
@@ -72,21 +72,23 @@ def test_the_light_theme_changes_the_text_and_button_colours_too() -> None:
     assert THEMES[DEFAULT_THEME].text == theme.TEXT
 
 
-def test_the_default_theme_is_ocean_blue() -> None:
-    theme.apply_theme("rose")
+def test_the_default_theme_is_ocean_glow() -> None:
+    theme.apply_theme("neon")
     theme.apply_theme(DEFAULT_THEME)
-    # The design's Ocean Blue #0B6EC7, lightened 13 % so icons on buttons keep 4.5:1 contrast (M3).
-    assert (theme.BG, theme.BLUE, theme.CYAN) == ("#070B15", "#2B81CE", "#22D3EE")
+    # The gallery's Ocean Glow; its accent #087BCE is lightened a little so icons on buttons keep 4.5:1.
+    assert (theme.BG, theme.BLUE, theme.CYAN) == ("#061A35", "#0881D8", "#00D9FF")
 
 
-def test_the_eight_themes_of_the_design_in_order() -> None:
+def test_the_seven_themes_of_the_gallery_in_order() -> None:
     from babarify_frame.core.themes import RETIRED_THEMES
 
     labels = [p.label for p in THEMES.values()]
-    assert labels == ["Ocean Blue", "Forest Green", "Royal Purple", "Amber Gold", "Teal Breeze", "Rose Pink",
-                      "Classic Dark", "Light"]  # fmt: skip
-    assert RETIRED_THEMES == {"sunset": "amber"}
-    assert Preferences(colour_theme="sunset").normalized().colour_theme == "amber"
+    assert labels == ["Ocean Glow", "Aurora Dream", "Royal Purple", "Golden Horizon", "Midnight Glass",
+                      "Neon Spectrum", "Crystal Light"]  # fmt: skip
+    moved = {"sunset": "amber", "forest": "aurora", "teal": "ocean", "rose": "neon", "classic": "midnight"}
+    assert moved == RETIRED_THEMES
+    for old, new in moved.items():  # a choice saved by an earlier version moves to its nearest new theme
+        assert Preferences(colour_theme=old).normalized().colour_theme == new
 
 
 def test_an_unknown_theme_falls_back_to_the_default() -> None:

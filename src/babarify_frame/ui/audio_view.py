@@ -371,6 +371,11 @@ class AudioView(QFrame):
         self.artist.setAccessibleName("Artist")
 
     @property
+    def image(self) -> QImage | None:
+        """The picture on show (0.12: also for the player bar and Now Playing panel)."""
+        return self._image
+
+    @property
     def showing_picture(self) -> bool:
         return self._art.currentWidget() is self.cover
 

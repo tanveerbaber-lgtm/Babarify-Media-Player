@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 from functools import cache
+from pathlib import Path
 
 from PySide6.QtCore import QEvent, QPoint, QRectF, Qt, Signal
 from PySide6.QtGui import (
@@ -53,6 +54,10 @@ GLYPHS = {
     "heart_filled": "\ueb52",
     "playlists": "\ue8fd",  # BulletedList
     "tv": "\ue7f4",  # TVMonitor (0.12)
+    "album": "\ue93c",  # MusicAlbum (0.12 side bar)
+    "artist": "\ue77b",  # Contact
+    "history": "\ue81c",  # History
+    "equalizer": "\ue9e9",  # Equalizer
     "library": "",  # Library
 }
 
@@ -246,3 +251,14 @@ def set_topmost(window: QWidget, enabled: bool) -> None:
     window.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, enabled)
     if visible:
         window.show()
+
+
+LOGO_FILE = Path(__file__).resolve().parent.parent / "resources" / "icons" / "babarify-logo.png"
+
+
+def brand_logo(fallback: QIcon, width: int) -> QPixmap:
+    """The headphones logo (0.12 redesign), ``width`` pixels wide; the app icon if the file is missing."""
+    image = QPixmap(str(LOGO_FILE))
+    if image.isNull():
+        return fallback.pixmap(width, width)
+    return image.scaledToWidth(width, Qt.TransformationMode.SmoothTransformation)

@@ -1,166 +1,124 @@
-"""Generate the Babarify Media Player app icons from the source artwork.
+"""Generate Babarify Media Player's logo and Windows app icons from the source artwork (0.12 redesign).
 
-Source: branding/source/Babarify Media Player Logo Suite.png (1536 x 1024): the "Babarify Media Player"
-wordmark, and below it two app tiles of a blue "B" with a play button, green sound bars and a green
-swoosh. The app icon is the filled blue tile at the bottom left. That tile is a little wider than tall
-and its anti-aliased corners hold white from the sheet, so the script rebuilds it: a fresh rounded square
-in the tile's blues fills the whole icon, and the tile's artwork (inside its rim) is blended onto it with
-soft edges. It writes:
+Source: branding/source/Glossy Headphone Music Player Icon.png (1254 x 1254): headphones around a glowing play
+button, with blue-to-green bars. Its "transparent" background is a grey checkerboard painted into the pixels,
+so the script cuts the logo out:
 
-- PNG sizes and a multi-size Windows .ico in branding/icon/, copied into the Windows app's resources;
-- the Android launcher icon: an adaptive icon (the rounded tile on a matching blue background) and
-  plain PNGs, plus a rounded copy for the opening intro and the home screen widget.
+- neutral mid-grey pixels are background candidates (the dark ear pads and white highlights fall outside);
+- a candidate region is background if it touches the edge, or if it is large, pure grey (the ear pads'
+  sheen is slightly blue) and holds both checker tones (the gap under the headband);
+- the edge is trimmed by one pixel and softened, so no grey fringe shows on dark themes.
 
-The tile is about 450 px wide in the suite, so the 512 and 1024 px sizes are enlarged and a little soft.
+It writes:
 
-Usage:  python branding/generate_icon.py   (requires Pillow)
+- branding/icon/babarify-logo.png: the transparent logo, 1024 px wide, for the app's pages;
+- PNG sizes and a multi-size Windows .ico in branding/icon/, copied into the Windows app's resources. The
+  smallest sizes (up to 32 px) show the play button alone: the whole logo is a smudge at that size.
+
+The Android icons are not touched.
+
+Usage:  python branding/generate_icon.py   (requires Pillow and numpy)
 """
 
 import shutil
 from pathlib import Path
 
-from PIL import Image, ImageChops, ImageDraw, ImageFilter
+import numpy as np
+from PIL import Image, ImageDraw, ImageFilter
 
 ROOT = Path(__file__).parent
-SOURCE = ROOT / "source" / "Babarify Media Player Logo Suite.png"
+SOURCE = ROOT / "source" / "Glossy Headphone Music Player Icon.png"
 OUT = ROOT / "icon"
 APP_RESOURCES = ROOT.parent / "src" / "babarify_frame" / "resources" / "icons"
-ANDROID_RES = ROOT.parent / "android" / "player" / "app" / "src" / "main" / "res"
 APP_PNG_SIZES = [16, 32, 64, 256]
-
-# The filled tile, measured on the 1536 x 1024 suite.
-CROP = (247, 504, 700, 913)
-ART_INSET = 9  # px inside the tile's edge, past its rim and its white-tinted corners
-ART_WIDTH = 0.92  # share of the icon's width the artwork takes
-ART_FEATHER = 14  # px (at 1024) over which the artwork blends into the new background
-SIZE = 1024
-RADIUS = 0.2  # corner radius as a share of the icon's size
-# The new background: a diagonal gradient through the tile's own blues.
-TOP_LEFT = (12, 160, 255)
-BOTTOM_RIGHT = (0, 22, 140)
-RIM = (120, 220, 255, 150)
-
 PNG_SIZES = [16, 24, 32, 48, 64, 128, 256, 512, 1024]
 ICO_SIZES = [16, 24, 32, 48, 64, 128, 256]
-SHARPEN_MAX = 48  # light unsharp mask at small sizes
-
-# Android densities: launcher icon size (48 dp) and adaptive layer size (108 dp) in pixels.
-DENSITIES = {"mdpi": 1.0, "hdpi": 1.5, "xhdpi": 2.0, "xxhdpi": 3.0, "xxxhdpi": 4.0}
-# The rounded tile covers this much of the 108 dp layer. The launcher shows the middle 72 dp through its
-# own shape, which hides the tile's corners while the wordmark stays whole.
-FOREGROUND_DP = 74
+SMALL = 32  # this size and below: the play button alone
+PLAY_BUTTON = (285, 305, 965, 985)  # the glowing circle, measured on the 1254 px source
+LOGO_WIDTH = 1024
 
 
-def tile_crop():
-    return Image.open(SOURCE).convert("RGBA").crop(CROP)
+def cut_out(source: Image.Image) -> Image.Image:
+    rgb = source.convert("RGB")
+    a = np.asarray(rgb).astype(np.int16)
+    sat = a.max(axis=2) - a.min(axis=2)
+    lum = a.mean(axis=2)
+    candidate = (sat < 24) & (lum > 118) & (lum < 238)
+    mask = Image.fromarray((candidate * 255).astype(np.uint8), "L")
+    background = np.zeros_like(candidate)
+    visited = np.zeros_like(candidate)
+    height, width = candidate.shape
+    for y in range(0, height, 6):
+        for x in range(0, width, 6):
+            if not candidate[y, x] or visited[y, x]:
+                continue
+            filled = mask.copy()
+            ImageDraw.floodfill(filled, (x, y), 100)
+            region = np.asarray(filled) == 100
+            visited |= region
+            edge = region[0].any() or region[-1].any() or region[:, 0].any() or region[:, -1].any()
+            tones = lum[region]
+            both = (tones > 195).mean() > 0.3 and (tones < 175).mean() > 0.3
+            neutral = sat[region].mean() < 6
+            if edge or (region.sum() > 1500 and both and neutral):
+                background |= region
+    alpha = Image.fromarray(np.where(background, 0, 255).astype(np.uint8), "L")
+    alpha = alpha.filter(ImageFilter.MinFilter(3)).filter(ImageFilter.GaussianBlur(0.8))
+    out = rgb.convert("RGBA")
+    out.putalpha(alpha)
+    return out
 
 
-def gradient():
-    small = Image.new("RGB", (256, 256))
-    pixels = small.load()
-    for y in range(256):
-        for x in range(256):
-            t = min(1.0, (x * 0.45 + y * 0.75) / (255 * 1.2))
-            pixels[x, y] = tuple(round(a + (b - a) * t) for a, b in zip(TOP_LEFT, BOTTOM_RIGHT, strict=True))
-    return small.resize((SIZE, SIZE), Image.BICUBIC).convert("RGBA")
+def round_crop(image: Image.Image) -> Image.Image:
+    """Only the circle: the bars and ear cups around the play button are cut away."""
+    mask = Image.new("L", image.size, 0)
+    ImageDraw.Draw(mask).ellipse((6, 6, image.width - 7, image.height - 7), fill=255)
+    mask = mask.filter(ImageFilter.GaussianBlur(1.5))
+    out = image.copy()
+    out.putalpha(Image.fromarray(np.minimum(np.asarray(image.getchannel("A")), np.asarray(mask))))
+    return out
 
 
-def master():
-    canvas = gradient()
-
-    tile = tile_crop()
-    art = tile.crop((ART_INSET, ART_INSET, tile.width - ART_INSET, tile.height - ART_INSET))
-    scale = SIZE * ART_WIDTH / art.width
-    art = art.resize((round(art.width * scale), round(art.height * scale)), Image.LANCZOS)
-    mask = Image.new("L", art.size, 0)
-    f = ART_FEATHER
-    ImageDraw.Draw(mask).rounded_rectangle(
-        (f, f, art.width - f, art.height - f), radius=int(SIZE * 0.12), fill=255
-    )
-    art.putalpha(mask.filter(ImageFilter.GaussianBlur(f / 2)))
-    canvas.alpha_composite(art, ((SIZE - art.width) // 2, (SIZE - art.height) // 2))
-
-    # A thin glossy line just inside the edge, like the original tile's rim.
-    radius = int(SIZE * RADIUS)
-    rim = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
-    ImageDraw.Draw(rim).rounded_rectangle(
-        (10, 10, SIZE - 11, SIZE - 11), radius=radius - 10, outline=RIM, width=6
-    )
-    canvas.alpha_composite(rim.filter(ImageFilter.GaussianBlur(1.5)))
-
-    # The rounded square, drawn large and reduced for a smooth edge.
-    shape = Image.new("L", (SIZE * 4, SIZE * 4), 0)
-    ImageDraw.Draw(shape).rounded_rectangle((0, 0, SIZE * 4 - 1, SIZE * 4 - 1), radius=radius * 4, fill=255)
-    canvas.putalpha(ImageChops.multiply(canvas.getchannel("A"), shape.resize((SIZE, SIZE), Image.LANCZOS)))
+def square(image: Image.Image, margin: float = 0.04) -> Image.Image:
+    """The artwork centred on a transparent square, with a small margin."""
+    box = image.getbbox() or (0, 0, image.width, image.height)
+    art = image.crop(box)
+    side = int(max(art.size) * (1 + 2 * margin))
+    canvas = Image.new("RGBA", (side, side), (0, 0, 0, 0))
+    canvas.paste(art, ((side - art.width) // 2, (side - art.height) // 2), art)
     return canvas
 
 
-def sized(art, px):
-    im = art.resize((px, px), Image.LANCZOS)
-    if px <= SHARPEN_MAX:
-        im = im.filter(ImageFilter.UnsharpMask(radius=0.6, percent=60, threshold=0))
-    return im
+def sized(image: Image.Image, size: int) -> Image.Image:
+    small = image.resize((size, size), Image.Resampling.LANCZOS)
+    if size <= 48:
+        small = small.filter(ImageFilter.UnsharpMask(radius=0.6, percent=60, threshold=1))
+    return small
 
 
-def edge_colour(art):
-    """The icon's deep blue along its lower edge, for the adaptive icon's background."""
-    w, h = art.size
-    points = [
-        (w // 2, h * 94 // 100),
-        (w // 4, h * 92 // 100),
-        (w * 3 // 4, h * 92 // 100),
-    ]
-    pixels = [art.getpixel(p) for p in points]
-    return tuple(sum(p[i] for p in pixels) // len(pixels) for i in range(3))
-
-
-def windows(art):
-    (OUT / "png").mkdir(parents=True, exist_ok=True)
-    images = {px: sized(art, px) for px in PNG_SIZES}
-    for px, im in images.items():
-        im.save(OUT / "png" / f"babarify-frame-{px}.png")
-    ico = [images[px] for px in ICO_SIZES]
-    ico[-1].save(OUT / "babarify-frame.ico", sizes=[(p, p) for p in ICO_SIZES], append_images=ico[:-1])
-
-    # Copies bundled with the application package.
-    APP_RESOURCES.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(OUT / "babarify-frame.ico", APP_RESOURCES / "babarify-frame.ico")
-    for px in APP_PNG_SIZES:
-        shutil.copy2(OUT / "png" / f"babarify-frame-{px}.png", APP_RESOURCES / f"babarify-frame-{px}.png")
-
-
-def android(art):
-    for name, scale in DENSITIES.items():
-        folder = ANDROID_RES / f"mipmap-{name}"
-        folder.mkdir(parents=True, exist_ok=True)
-        sized(art, round(48 * scale)).save(folder / "ic_launcher.png")
-        layer = round(108 * scale)
-        foreground = Image.new("RGBA", (layer, layer), (0, 0, 0, 0))
-        px = round(FOREGROUND_DP * scale)
-        offset = (layer - px) // 2
-        foreground.alpha_composite(art.resize((px, px), Image.LANCZOS), (offset, offset))
-        foreground.save(folder / "ic_launcher_foreground.png")
-
-    # The rounded tile for the intro and the widget, which draw it themselves.
-    nodpi = ANDROID_RES / "drawable-nodpi"
-    nodpi.mkdir(parents=True, exist_ok=True)
-    art.resize((384, 384), Image.LANCZOS).save(nodpi / "brand_icon.png")
-
-    r, g, b = edge_colour(art)
-    values = ANDROID_RES / "values" / "ic_launcher_background.xml"
-    values.write_text(
-        '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n'
-        f'    <color name="ic_launcher_background">#{r:02X}{g:02X}{b:02X}</color>\n</resources>\n',
-        encoding="utf-8",
-        newline="\n",
+def main() -> None:
+    logo = cut_out(Image.open(SOURCE))
+    OUT.mkdir(exist_ok=True)
+    (OUT / "png").mkdir(exist_ok=True)
+    box = logo.getbbox() or (0, 0, logo.width, logo.height)
+    art = logo.crop(box)
+    art.resize((LOGO_WIDTH, round(LOGO_WIDTH * art.height / art.width)), Image.Resampling.LANCZOS).save(
+        OUT / "babarify-logo.png"
     )
-
-
-def main():
-    art = master()
-    windows(art)
-    android(art)
-    print(f"Wrote icons to {OUT}, {APP_RESOURCES} and {ANDROID_RES}")
+    full = square(logo)
+    button = square(round_crop(logo.crop(PLAY_BUTTON)), margin=0.02)
+    icons = {size: sized(button if size <= SMALL else full, size) for size in PNG_SIZES}
+    for size, image in icons.items():
+        image.save(OUT / "png" / f"babarify-frame-{size}.png")
+    largest = icons[max(ICO_SIZES)]
+    largest.save(OUT / "babarify-frame.ico", sizes=[(s, s) for s in ICO_SIZES],
+                 append_images=[icons[s] for s in ICO_SIZES if s != max(ICO_SIZES)])  # fmt: skip
+    APP_RESOURCES.mkdir(parents=True, exist_ok=True)
+    for size in APP_PNG_SIZES:
+        shutil.copy2(OUT / "png" / f"babarify-frame-{size}.png", APP_RESOURCES / f"babarify-frame-{size}.png")
+    shutil.copy2(OUT / "babarify-frame.ico", APP_RESOURCES / "babarify-frame.ico")
+    shutil.copy2(OUT / "babarify-logo.png", APP_RESOURCES / "babarify-logo.png")
+    print(f"logo, {len(PNG_SIZES)} PNG sizes and the .ico written to {OUT} and {APP_RESOURCES}")
 
 
 if __name__ == "__main__":

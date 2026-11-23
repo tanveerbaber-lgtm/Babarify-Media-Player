@@ -26,6 +26,8 @@ linked issue if you have new information.
 | Library | APE, Musepack and DSD files aren't added to the library (they couldn't be tested); open them with File → Open | File → Open | 0.12 |
 | IPTV | The TV guide is shown per channel (Now and Next, and a channel's schedule); there is no grid of all channels yet | — | 0.12 |
 | IPTV | Channel logos aren't shown yet | — | 0.12 |
+| Look | The Android app still has the previous icon | — | 0.12 |
+| Look | The Now Playing panel shows the song's picture; videos show a film symbol there instead of a frame | — | 0.12 |
 | IPTV | Logins to Xtream Codes or Stalker portals aren't supported: use your provider's M3U list | — | 0.12 |
 | IPTV | Channels protected with DRM (as in most paid TV apps) can't play in any IPTV player | Use the provider's own app | 0.12 |
 | Streams | Only one stream plays at a time; recording and pausing live TV aren't available | — | 0.12 |

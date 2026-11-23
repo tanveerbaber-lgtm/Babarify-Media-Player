@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QImage
-from PySide6.QtWidgets import QApplication, QDial, QLabel, QToolButton
+from PySide6.QtWidgets import QApplication, QDial, QLabel, QPushButton
 from pytestqt.qtbot import QtBot
 
 from babarify_frame.configuration.preferences import PreferencesStore
@@ -66,14 +66,14 @@ def test_settings_offer_every_theme(window: MainWindow) -> None:
 
 
 def test_choosing_a_theme_applies_at_once_and_is_remembered(window: MainWindow, tmp_path: Path) -> None:
-    choose(window, "forest")
-    assert theme.current_theme == "forest"
+    choose(window, "aurora")
+    assert theme.current_theme == "aurora"
     app = QApplication.instance()
     assert isinstance(app, QApplication)
-    assert THEMES["forest"].bg in app.styleSheet()
+    assert THEMES["aurora"].bg in app.styleSheet()
     pixel = window.settings.grab().toImage().pixelColor(2, 2)
-    assert pixel.name().upper() == THEMES["forest"].bg
-    assert PreferencesStore(tmp_path / "settings.json").load().colour_theme == "forest"
+    assert pixel.name().upper() == THEMES["aurora"].bg
+    assert PreferencesStore(tmp_path / "settings.json").load().colour_theme == "aurora"
 
 
 def test_a_saved_theme_applies_when_the_app_starts(qtbot: QtBot, tmp_path: Path) -> None:
@@ -106,8 +106,8 @@ def test_lit_buttons_take_the_new_colour(
     window.player.cycle_repeat()
     assert THEMES[DEFAULT_THEME].accent2 in asked
     asked.clear()
-    choose(window, "teal")
-    assert THEMES["teal"].accent2 in asked
+    choose(window, "neon")
+    assert THEMES["neon"].accent2 in asked
 
 
 def test_light_redraws_every_button_and_the_rail_in_its_colours(
@@ -138,13 +138,13 @@ def test_the_colour_theme_is_one_click_away_in_the_view_menu(window: MainWindow,
     window.theme_menu.aboutToShow.emit()  # as when the menu opens
     actions = window.theme_menu.actions()
     assert [action.text() for action in actions] == [palette.label for palette in THEMES.values()]
-    assert [action.text() for action in actions if action.isChecked()] == ["Ocean Blue"]
-    next(action for action in actions if action.text() == "Forest Green").trigger()
-    assert theme.current_theme == "forest"
-    assert window.settings.colour_theme.currentData() == "forest", "Settings agrees"
-    assert PreferencesStore(tmp_path / "settings.json").load().colour_theme == "forest"
+    assert [action.text() for action in actions if action.isChecked()] == ["Ocean Glow"]
+    next(action for action in actions if action.text() == "Aurora Dream").trigger()
+    assert theme.current_theme == "aurora"
+    assert window.settings.colour_theme.currentData() == "aurora", "Settings agrees"
+    assert PreferencesStore(tmp_path / "settings.json").load().colour_theme == "aurora"
     window.theme_menu.aboutToShow.emit()
-    assert [a.text() for a in window.theme_menu.actions() if a.isChecked()] == ["Forest Green"]
+    assert [a.text() for a in window.theme_menu.actions() if a.isChecked()] == ["Aurora Dream"]
     choose(window, DEFAULT_THEME)
 
 
@@ -158,19 +158,26 @@ def test_the_animation_is_chosen_in_the_view_menu(window: MainWindow, tmp_path: 
     assert [a.text() for a in window.build_animation_menu().actions() if a.isChecked()] == ["Circle"]
 
 
+def side_bar(window: MainWindow) -> list[str]:
+    buttons = (b for b in window.findChildren(QPushButton) if b.objectName() == "navButton" and b.isVisible())
+    return [b.text() for b in sorted(buttons, key=lambda b: b.y())]
+
+
 def test_the_rail_follows_the_design(window: MainWindow) -> None:
-    """Home, Music, Videos, Playlists, Playing, and Settings set apart at the bottom (M3)."""
-    rail_buttons = sorted(
-        (b for b in window.findChildren(QToolButton) if b.objectName() == "navButton" and b.isVisible()),
-        key=lambda b: b.y(),
-    )
-    assert [b.text() for b in rail_buttons] == ["Home", "Music", "Videos", "Playlists", "Playing", "Settings"]
-    assert {b.width() for b in rail_buttons} == {window.nav_home.width()}, "lined up"
+    """The side bar of the 0.12 redesign: the pages, then Your library and Tools, the theme at the foot."""
+    assert side_bar(window) == [
+        "Home", "Music", "Videos", "Now playing",
+        "Albums", "Artists", "Playlists", "Favourites", "Recently played",
+        "Equalizer", "Settings", "Theme",
+    ]  # fmt: skip
+    sections = [label.text() for label in window.findChildren(QLabel) if label.objectName() == "railSection"]
+    assert sections == ["Your library", "Tools"]
+    buttons = [b for b in window.findChildren(QPushButton) if b.objectName() == "navButton" and b.isVisible()]
+    assert {b.width() for b in buttons} == {window.nav_home.width()}, "lined up"
     if real_display():  # with no display there is no Arial or icon font, so the sizes mean nothing
-        for button in rail_buttons:
+        for button in buttons:
             assert button.sizeHint().width() <= button.width(), f"{button.text()} would be cut off"
-    gap = window.nav_settings.y() - window.nav_player.geometry().bottom()
-    assert gap > 100, "set apart from the pages above"
+    assert window.nav_theme.y() > window.nav_settings.geometry().bottom(), "the theme sits at the foot"
     window.nav_settings.click()
     assert window.current_page() is window.settings
 
@@ -195,29 +202,16 @@ def test_music_videos_and_playlists_show_their_part_of_the_library(
     assert library.video_view.isVisibleTo(library) is (section == "videos")
 
 
-def test_home_shows_the_name_once_in_the_brand_colours(window: MainWindow) -> None:
-    labels = [label.text() for label in window.home.findChildren(QLabel)]
-    assert labels.count("Babarify Media Player") == 1
-    assert "BABARIFY" not in labels
-    title = next(
-        label for label in window.home.findChildren(QLabel) if label.text() == "Babarify Media Player"
-    )
+def test_the_name_and_logo_lead_the_side_bar(window: MainWindow) -> None:
+    """0.12 redesign: the headphones logo and the name at the top of the side bar; Home greets instead."""
+    from babarify_frame import TAGLINE
+
+    texts = [label.text() for label in window.findChildren(QLabel) if label.isVisibleTo(window)]
+    assert "Babarify" in texts and TAGLINE in texts
+    assert window.windowTitle() == "Babarify Media Player"
     window.show_page(window.home)
-    image = title.grab().toImage()
-
-    def closest(colour: str, columns: range) -> int:
-        target = QColor(colour)
-        return min(
-            abs(image.pixelColor(x, y).red() - target.red())
-            + abs(image.pixelColor(x, y).green() - target.green())
-            + abs(image.pixelColor(x, y).blue() - target.blue())
-            for x in columns
-            for y in range(image.height())
-        )
-
-    third = image.width() // 3
-    assert closest(theme.BLUE, range(0, third)) < 40, "blue at the start"
-    assert closest(theme.CYAN, range(image.width() - third, image.width())) < 40, "cyan at the end"
+    assert window.home.greeting.text() in ("Good Morning", "Good Afternoon", "Good Evening")
+    assert window.home.banner_logo.pixmap() is not None and not window.home.banner_logo.pixmap().isNull()
 
 
 def test_a_background_picture_goes_behind_the_pages_until_removed(window: MainWindow, tmp_path: Path) -> None:
@@ -370,18 +364,34 @@ def test_leaving_full_screen_keeps_the_status_bar_as_chosen(qtbot: QtBot, window
 
 def test_tv_joins_the_rail_only_while_streams_are_on(window: MainWindow, qtbot: QtBot) -> None:
     """0.12: IPTV stays out of sight until network streams are switched on."""
-
-    def visible() -> list[str]:
-        buttons = (
-            b for b in window.findChildren(QToolButton) if b.objectName() == "navButton" and b.isVisible()
-        )
-        return [b.text() for b in sorted(buttons, key=lambda b: b.y())]
-
-    assert "TV" not in visible() and not window.tv_action.isVisible()
+    assert "TV" not in side_bar(window) and not window.tv_action.isVisible()
     window.settings.network_streams.setChecked(True)
-    qtbot.waitUntil(lambda: "TV" in visible())
-    assert visible() == ["Home", "Music", "Videos", "Playlists", "TV", "Playing", "Settings"]
+    qtbot.waitUntil(lambda: "TV" in side_bar(window))
+    assert side_bar(window)[:5] == ["Home", "Music", "Videos", "TV", "Now playing"]
     window.nav_tv.click()
     assert window.current_page() is window.tv
     window.settings.network_streams.setChecked(False)
-    assert "TV" not in visible() and window.current_page() is window.home
+    assert "TV" not in side_bar(window) and window.current_page() is window.home
+
+
+def test_library_entries_open_their_tab_or_list(window: MainWindow) -> None:
+    """Albums and Artists open their tab of Music; Favourites and Recently played their automatic list."""
+    window.nav_albums.click()
+    assert window.library.section == "music" and window.nav_albums.isChecked()
+    assert window.library.tabs.tabText(window.library.tabs.currentIndex()) == "Albums"
+    window.nav_favourites.click()
+    assert window.library.section == "playlists" and window.nav_favourites.isChecked()
+    assert window.library.playlists.current_automatic == "Favourites"
+    window.nav_recent.click()
+    assert window.library.playlists.current_automatic == "Recently played" and window.nav_recent.isChecked()
+
+
+def test_a_short_window_scrolls_the_side_bar(window: MainWindow, qtbot: QtBot) -> None:
+    """At the smallest window size the side bar scrolls; its entries keep their height (0.12 redesign)."""
+    from PySide6.QtWidgets import QScrollArea
+
+    window.resize(window.minimumSize())
+    qtbot.wait(50)
+    scroll = window._rail.findChild(QScrollArea)
+    assert scroll is not None and scroll.verticalScrollBar().maximum() > 0
+    assert {b.height() for b in window.findChildren(QPushButton) if b.objectName() == "navButton"} == {40}

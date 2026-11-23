@@ -35,18 +35,23 @@ from PySide6.QtGui import (
     QImage,
     QKeySequence,
     QPainter,
+    QResizeEvent,
     QShowEvent,
 )
 from PySide6.QtWidgets import (
+    QAbstractButton,
     QApplication,
     QButtonGroup,
     QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMenu,
     QMessageBox,
+    QPushButton,
+    QScrollArea,
     QSizePolicy,
     QStackedWidget,
     QToolButton,
@@ -66,7 +71,7 @@ from babarify_frame.iptv.service import IptvService
 from babarify_frame.iptv.store import ChannelEntry, IptvStore
 from babarify_frame.library import backup, legacy_ai
 from babarify_frame.library.database import LibraryDatabase
-from babarify_frame.library.models import HistoryEntry
+from babarify_frame.library.models import HistoryEntry, SortOrder
 from babarify_frame.library.service import LibraryService
 from babarify_frame.playback.controller import PlaybackController
 from babarify_frame.playback.factory import EngineFactory
@@ -81,7 +86,8 @@ from babarify_frame.ui.lyrics_dialog import LyricsDialog
 from babarify_frame.ui.media_info import MediaInfoDialog
 from babarify_frame.ui.mini_player import MiniPlayer
 from babarify_frame.ui.network import NetworkStreamDialog
-from babarify_frame.ui.pages.home import SHORTCUTS, HomePage
+from babarify_frame.ui.now_playing import NowPanel, NowPlaying, PlayerBar
+from babarify_frame.ui.pages.home import ADDED_LIMIT, SHORTCUTS, HomePage
 from babarify_frame.ui.pages.library import HiddenFilesDialog, LibraryPage
 from babarify_frame.ui.pages.player import VOLUME_STEP, PlayerPage
 from babarify_frame.ui.pages.settings import SettingsPage, theme_swatch
@@ -89,8 +95,10 @@ from babarify_frame.ui.pages.tv import TvPage
 from babarify_frame.ui.report import ReportDialog
 from babarify_frame.ui.subtitles import SUBTITLE_FILTER
 from babarify_frame.ui.update_notice import UpdateBar, UpdateChecker, UpdateResult
-from babarify_frame.ui.widgets import format_time, glyph_icon, set_topmost
+from babarify_frame.ui.widgets import brand_logo, format_time, glyph_icon, set_topmost
 
+RAIL_WIDTH = 220  # the side bar (0.12 redesign)
+PANEL_MIN_WIDTH = 1180  # narrower windows give the pages the Now Playing panel's room
 # The same types the library scans, so the Open dialog and the library always agree.
 MEDIA_FILTER = f"Media files ({' '.join('*' + ext for ext in sorted(MEDIA_EXTENSIONS))});;All files (*)"
 MIN_SIZE = QSize(560, 400)
@@ -127,6 +135,7 @@ class MainWindow(QMainWindow):
         self.setAcceptDrops(True)
 
         self.home = HomePage(icon)
+        self.home.search.hide()  # the top bar's search drives it (0.12 redesign)
         db = self.library_service.db
         self.player = PlayerPage(
             factory, engine_name, self._prefs, history=db, preview_factory=preview_factory
@@ -146,10 +155,14 @@ class MainWindow(QMainWindow):
 
         root = QWidget()
         root.setObjectName("root")
-        row = QHBoxLayout(root)
+        frame = QVBoxLayout(root)
+        frame.setContentsMargins(0, 0, 0, 0)
+        frame.setSpacing(0)
+        row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(0)
-        self._nav_icons: list[tuple[QToolButton, str]] = []
+        frame.addLayout(row, stretch=1)
+        self._nav_icons: list[tuple[QAbstractButton, str]] = []
         self._rail = self._build_rail(icon)
         row.addWidget(self._rail)
         column = QVBoxLayout()
@@ -158,8 +171,23 @@ class MainWindow(QMainWindow):
         self.update_bar = UpdateBar()
         self.update_bar.skipped.connect(lambda version: self._remember(skipped_update=version))
         column.addWidget(self.update_bar)
-        column.addWidget(self._pages, stretch=1)
+        self.top_bar = self._build_top_bar()
+        column.addWidget(self.top_bar)
+        body = QHBoxLayout()
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(0)
+        body.addWidget(self._pages, stretch=1)
+        self._now = NowPlaying(self.player)
+        self.now_panel = NowPanel(self._now)
+        body.addWidget(self.now_panel)
+        column.addLayout(body, stretch=1)
         row.addLayout(column, stretch=1)
+        self.player_bar = PlayerBar(self._now)
+        frame.addWidget(self.player_bar)
+        for view in (self.player_bar, self.now_panel):
+            view.open_player.connect(lambda: self.show_page(self.player))
+            view.queue_requested.connect(self.show_queue)
+        self.player_bar.mini_requested.connect(self.enter_mini_player)
         self._update_bridge = UiBridge(self)
         self._update_bridge.delivered.connect(self._on_update_result)
         self._updates = UpdateChecker(self._update_bridge)
@@ -179,63 +207,118 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------ layout
     def _build_rail(self, icon: QIcon) -> QFrame:
+        """The side bar (0.12 redesign): the pages, then "Your library" and "Tools", the theme at the foot."""
         rail = QFrame()
         rail.setObjectName("navRail")
-        rail.setFixedWidth(100)  # the longest label, Animation, has to fit
-        box = QVBoxLayout(rail)
-        box.setContentsMargins(0, theme.L, 0, theme.M)
-        box.setSpacing(theme.XS)
+        rail.setFixedWidth(RAIL_WIDTH)
+        outer = QVBoxLayout(rail)
+        outer.setContentsMargins(0, 0, 0, 0)
+        # In a short window the side bar scrolls rather than squeezing its entries together.
+        scroll = QScrollArea()
+        scroll.setObjectName("railScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        content = QWidget()
+        content.setObjectName("seeThrough")
+        scroll.viewport().setObjectName("seeThrough")
+        scroll.setWidget(content)
+        outer.addWidget(scroll)
+        box = QVBoxLayout(content)
+        box.setContentsMargins(theme.M, theme.L, theme.M, theme.M)
+        box.setSpacing(2)
+        brand = QHBoxLayout()
+        brand.setSpacing(theme.S)
         logo = QLabel()
-        logo.setPixmap(icon.pixmap(36, 36))
+        logo.setPixmap(brand_logo(icon, 46))
         logo.setAccessibleName(f"{PRODUCT_NAME} logo")
-        box.addWidget(logo, alignment=Qt.AlignmentFlag.AlignHCenter)
+        brand.addWidget(logo)
+        names = QVBoxLayout()
+        names.setSpacing(0)
+        name = QLabel("Babarify")
+        name.setObjectName("railBrand")
+        tagline = QLabel(TAGLINE)
+        tagline.setObjectName("caption")
+        names.addWidget(name)
+        names.addWidget(tagline)
+        brand.addLayout(names, stretch=1)
+        box.addLayout(brand)
         box.addSpacing(theme.L)
         self._nav = QButtonGroup(self)
         self._nav.setExclusive(True)
         self.nav_home = self._nav_button("home", "Home", "Home (Ctrl+1)", self.home)
         self.nav_music = self._nav_button("music", "Music", "Songs, albums, artists, genres (Ctrl+L)", None)
         self.nav_videos = self._nav_button("now_playing", "Videos", "Your videos", None)
-        self.nav_playlists = self._nav_button("playlists", "Playlists", "Your playlists", None)
-        self._library_buttons = (
-            (self.nav_music, "music"),
-            (self.nav_videos, "videos"),
-            (self.nav_playlists, "playlists"),
-        )
-        for button, section in self._library_buttons:
-            self._nav.addButton(button)
-            button.clicked.connect(lambda _=False, s=section: self.show_library(s))
-        self.nav_library = self.nav_music  # its name before M3
         self.nav_tv = self._nav_button("tv", "TV", "TV channels from your lists", self.tv)
         self.nav_tv.setVisible(self._prefs.network_streams)
-        self.nav_player = self._nav_button("play", "Playing", "Now Playing (Ctrl+2)", self.player)
+        self.nav_player = self._nav_button("play", "Now playing", "Now Playing (Ctrl+2)", self.player)
+        self.nav_albums = self._nav_button("album", "Albums", "Your albums", None)
+        self.nav_artists = self._nav_button("artist", "Artists", "Your artists", None)
+        self.nav_playlists = self._nav_button("playlists", "Playlists", "Your playlists", None)
+        self.nav_favourites = self._nav_button("heart", "Favourites", "Your favourite songs", None)
+        self.nav_recent = self._nav_button("history", "Recently played", "Songs you played lately", None)
+        self.nav_equalizer = self._nav_button("equalizer", "Equalizer", "Equalizer and sound (Ctrl+E)", None)
+        self.nav_equalizer.setCheckable(False)
+        self.nav_equalizer.clicked.connect(self.show_enhancements)
         self.nav_settings = self._nav_button("settings", "Settings", "Settings (Ctrl+3)", self.settings)
+        # (button, section, tab, automatic playlist): what each library button shows (0.12)
+        self._library_buttons = (
+            (self.nav_music, "music", "Songs", None),
+            (self.nav_videos, "videos", None, None),
+            (self.nav_albums, "music", "Albums", None),
+            (self.nav_artists, "music", "Artists", None),
+            (self.nav_playlists, "playlists", None, None),
+            (self.nav_favourites, "playlists", None, "Favourites"),
+            (self.nav_recent, "playlists", None, "Recently played"),
+        )
+        for button, section, tab, automatic in self._library_buttons:
+            self._nav.addButton(button)
+            button.clicked.connect(
+                lambda _=False, s=section, t=tab, a=automatic: self.show_library(s, tab=t, automatic=a)
+            )
+        self.nav_library = self.nav_music  # its name before M3
+        for button in (self.nav_home, self.nav_music, self.nav_videos, self.nav_tv, self.nav_player):
+            box.addWidget(button)
+        box.addSpacing(theme.M)
+        box.addWidget(self._rail_section("Your library"))
         for button in (
-            self.nav_home,
-            self.nav_music,
-            self.nav_videos,
+            self.nav_albums,
+            self.nav_artists,
             self.nav_playlists,
-            self.nav_tv,
-            self.nav_player,
+            self.nav_favourites,
+            self.nav_recent,
         ):
             box.addWidget(button)
-        box.addStretch(1)
+        box.addSpacing(theme.M)
+        box.addWidget(self._rail_section("Tools"))
+        box.addWidget(self.nav_equalizer)
         box.addWidget(self.nav_settings)
+        box.addStretch(1)
+        self.nav_theme = self._nav_button("theme", "Theme", "Colour theme", None)
+        self.nav_theme.setCheckable(False)
+        box.addWidget(self.nav_theme)
         return rail
 
-    def _nav_button(self, glyph: str, text: str, tip: str, page: QWidget | None) -> QToolButton:
-        button = QToolButton()
+    @staticmethod
+    def _rail_section(text: str) -> QLabel:
+        label = QLabel(text)
+        label.setObjectName("railSection")
+        return label
+
+    def _nav_button(self, glyph: str, text: str, tip: str, page: QWidget | None) -> QPushButton:
+        """A side bar entry: icon and name, left aligned (0.12 redesign)."""
+        button = QPushButton(text)
         button.setObjectName("navButton")
-        button.setText(text)
         button.setToolTip(tip)
-        button.setAccessibleName(text if text != "Playing" else "Now Playing")
+        button.setAccessibleName(text if text != "Now playing" else "Now Playing")
         self._nav_icons.append((button, glyph))
         nav_icon = glyph_icon(glyph, theme.TEXT, theme.TEXT_DISABLED, size=64, weight=0.03)
         if nav_icon is not None:
             button.setIcon(nav_icon)
-            button.setIconSize(QSize(26, 26))
-        button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+            button.setIconSize(QSize(20, 20))
         button.setCheckable(True)
-        button.setFixedHeight(68)
+        button.setFixedHeight(40)
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
         button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         if page is not None:
             self._nav.addButton(button)
@@ -446,6 +529,12 @@ class MainWindow(QMainWindow):
         # The colour theme and the animation used to have buttons on the side bar (until M3).
         self.theme_menu = view_menu.addMenu("Colour &theme")
         self.theme_menu.aboutToShow.connect(self._fill_theme_menu)
+        self.nav_theme.setMenu(self.theme_menu)  # the Theme button at the foot of the side bar (0.12)
+        self.now_panel_action = QAction("&Now playing panel", self)
+        self.now_panel_action.setCheckable(True)
+        self.now_panel_action.setChecked(self._prefs.show_now_panel)
+        self.now_panel_action.toggled.connect(self.set_now_panel)
+        view_menu.addAction(self.now_panel_action)
         self.animation_menu = view_menu.addMenu("&Animation for audio")
         self.animation_menu.aboutToShow.connect(self._fill_animation_menu)
         help_menu = menus.addMenu("&Help")
@@ -493,6 +582,8 @@ class MainWindow(QMainWindow):
         self.library.status_changed.connect(self.statusBar().showMessage)
         self.library.sort_changed.connect(self._on_library_sort)
         self.home.play_requested.connect(self.open_path)
+        self.home.play_now_requested.connect(self.play_now)
+        self.home.library_requested.connect(lambda: self.show_library("music", tab="Songs"))
         self.home.search_requested.connect(
             lambda text: self.home.set_search_results(self.library_service.db.search_everything(text))
         )
@@ -539,8 +630,8 @@ class MainWindow(QMainWindow):
             (self.nav_tv, self.tv),
         ):
             button.setChecked(target is page)
-        for button, section in self._library_buttons:
-            button.setChecked(page is self.library and self.library.section == section)
+        self._sync_library_buttons(page)
+        self._update_chrome(page)
         if page is self.player:
             self.player.setFocus()
         elif page is self.home and self._home_dirty:
@@ -810,10 +901,29 @@ class MainWindow(QMainWindow):
     def refresh_home(self) -> None:
         self._home_dirty = False
         db = self.library_service.db
+        self.home.refresh_greeting()
+        newest = db.media(sort=SortOrder.DATE_ADDED, limit=ADDED_LIMIT)
+        self.home.set_recently_added(
+            [(e.path, e.display_title, self.library_service.thumbnail_path(e.thumbnail)) for e in newest]
+        )
         if not self._prefs.remember_history:
             self.home.set_history([], [], lambda _e: None)
             return
         self.home.set_history(db.continue_watching(), db.recent(), self._thumbnail_for)
+
+    def play_now(self) -> None:
+        """The banner's Play now: carry on with what was playing; else the newest file in the library."""
+        db = self.library_service.db
+        if self._prefs.remember_history:
+            for entry in (*db.continue_watching(1), *db.recent(1)):
+                if entry.available:
+                    self.open_path(entry.path)
+                    return
+        newest = db.media(sort=SortOrder.DATE_ADDED, limit=1)
+        if newest:
+            self.open_path(newest[0].path)
+        else:
+            self.choose_file()
 
     def _thumbnail_for(self, entry: HistoryEntry) -> Path | None:
         return self.library_service.thumbnail_path(entry.thumbnail)
@@ -991,9 +1101,10 @@ class MainWindow(QMainWindow):
         if self.current_page() is not self.player:
             self.show_page(self.player)
         self._was_maximized = self.isMaximized()
-        for widget in (self._rail, self.menuBar(), self.statusBar()):
+        for widget in (self._rail, self.menuBar(), self.statusBar(), self.top_bar, self.update_bar):
             widget.hide()
         self.showFullScreen()
+        self._update_chrome()
         self.player.set_fullscreen_mode(True)
 
     def exit_fullscreen(self) -> None:
@@ -1007,6 +1118,7 @@ class MainWindow(QMainWindow):
         for widget in (self._rail, self.menuBar()):
             widget.show()
         self.statusBar().setVisible(self._prefs.show_status_bar)
+        self._update_chrome()
 
     # -------------------------------------------------------- preferences
     def _restore_geometry(self) -> None:
@@ -1053,6 +1165,8 @@ class MainWindow(QMainWindow):
             self._apply_background()
             self.player.refresh_theme()
             self.home.refresh_theme()
+            self.player_bar.refresh_theme()
+            self.now_panel.refresh_theme()
             for button, glyph in self._nav_icons:
                 nav_icon = glyph_icon(glyph, theme.TEXT, theme.TEXT_DISABLED, size=64, weight=0.03)
                 if nav_icon is not None:
@@ -1124,11 +1238,99 @@ class MainWindow(QMainWindow):
         if event.type() == QEvent.Type.ActivationChange and self.isActiveWindow():
             self._keep_on_top(self)
 
-    def show_library(self, section: str) -> None:
-        """Music, Videos or Playlists (M3): one page, showing one part of the library at a time."""
+    def show_library(self, section: str, tab: str | None = None, automatic: str | None = None) -> None:
+        """Music, Videos or Playlists (M3): one page, showing one part of the library at a time. Since the
+        0.12 side bar, also straight to a tab (Albums, Artists) or an automatic playlist (Favourites)."""
         if self.library.section != section:
             self.library.set_section(section)
+        if tab is not None:
+            names = [self.library.tabs.tabText(i) for i in range(self.library.tabs.count())]
+            if tab in names:
+                self.library.tabs.setCurrentIndex(names.index(tab))
+        if automatic is not None:
+            self.library.playlists.show_automatic(automatic)
         self.show_page(self.library)
+
+    def _sync_library_buttons(self, page: QWidget) -> None:
+        """The side bar lights the button for what the library page shows now."""
+        current = self.library.tabs.tabText(self.library.tabs.currentIndex())
+        automatic = self.library.playlists.current_automatic
+        best = None
+        for button, section, tab, auto in self._library_buttons:
+            if page is self.library and self.library.section == section:
+                if section == "playlists":
+                    if auto == automatic:
+                        best = button
+                elif tab is None or tab == current:
+                    best = button
+        for button, _section, _tab, _auto in self._library_buttons:
+            button.setChecked(button is best)
+
+    def _update_chrome(self, page: QWidget | None = None) -> None:
+        """The player bar and Now Playing panel step aside on the Playing page, which has its own controls,
+        and in full screen; the panel also when the user hid it or the window is narrow (0.12)."""
+        page = page or self.current_page()
+        full = self.isFullScreen()
+        self.player_bar.setVisible(page is not self.player and not full)
+        self.now_panel.setVisible(
+            page is not self.player
+            and not full
+            and self._prefs.show_now_panel
+            and self.width() >= PANEL_MIN_WIDTH
+        )
+        self.top_bar.setVisible(not full)
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        if hasattr(self, "now_panel"):
+            self._update_chrome()
+
+    def set_now_panel(self, shown: bool) -> None:
+        self._remember(show_now_panel=shown)
+        self._update_chrome()
+
+    def _build_top_bar(self) -> QFrame:
+        """One search across music, videos and channels, and quick buttons (0.12)."""
+        bar = QFrame()
+        bar.setObjectName("topBar")
+        row = QHBoxLayout(bar)
+        row.setContentsMargins(theme.XL, theme.M, theme.XL, theme.S)
+        row.setSpacing(theme.S)
+        self.top_search = QLineEdit()
+        self.top_search.setObjectName("topSearch")
+        self.top_search.setPlaceholderText("Search music and videos")
+        self.top_search.setAccessibleName("Search music and videos")
+        self.top_search.setClearButtonEnabled(True)
+        self.top_search.setMaximumWidth(520)
+        self.top_search.textChanged.connect(self._search_from_top)
+        row.addWidget(self.top_search, stretch=1)
+        row.addStretch(1)
+        for glyph, name, slot in (
+            ("equalizer", "Equalizer and sound", self.show_enhancements),
+            ("fullscreen", "Mini player", self.enter_mini_player),
+            ("settings", "Settings", lambda: self.show_page(self.settings)),
+        ):
+            button = QToolButton()
+            button.setObjectName("topButton")
+            button.setAccessibleName(name)
+            button.setToolTip(name)
+            button.setFixedSize(40, 40)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            self._nav_icons.append((button, glyph))
+            top_icon = glyph_icon(glyph, theme.TEXT, theme.TEXT_DISABLED, size=48)
+            if top_icon is not None:
+                button.setIcon(top_icon)
+                button.setIconSize(QSize(20, 20))
+            button.clicked.connect(slot)
+            row.addWidget(button)
+        return bar
+
+    def _search_from_top(self, text: str) -> None:
+        """The top search shows its results on Home, where the search has always lived."""
+        if self.home.search.text() != text:
+            self.home.search.setText(text)
+        if text.strip() and self.current_page() is not self.home:
+            self.show_page(self.home)
 
     def _fill_theme_menu(self) -> None:
         self.theme_menu.clear()
@@ -1347,6 +1549,7 @@ class MainWindow(QMainWindow):
             self._info_dialog.close()
         if self._enhancements is not None:
             self._enhancements.close()
+        self._now.stop()  # the player bar and panel stop reading the library before it closes
         self._store.save(self._final_preferences())
         # Rule: the engine must be closed while its host window still exists.
         self.player.shutdown()  # also saves the playback position

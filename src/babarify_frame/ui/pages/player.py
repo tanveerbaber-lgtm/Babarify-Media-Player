@@ -487,6 +487,31 @@ class PlayerPage(QWidget):
     def duration_ms(self) -> int | None:
         return self._duration_ms
 
+    # ------------------------------------------- for the player bar and Now Playing panel (0.12)
+    @property
+    def display_title(self) -> str:
+        """The song's title from its tags, else the file or channel name; "" when nothing is open."""
+        if not self.has_media and not self._media_name:
+            return ""
+        return (self.audio_view.title.text() if self._is_audio_only else "") or self._media_name
+
+    @property
+    def display_artist(self) -> str:
+        return self.audio_view.artist.text() if self._is_audio_only else ""
+
+    @property
+    def cover_image(self) -> QImage | None:
+        """The song's picture, when it has one."""
+        return self.audio_view.image if self._is_audio_only else None
+
+    @property
+    def has_video(self) -> bool:
+        return self.has_media and not self._is_audio_only
+
+    @property
+    def can_favourite(self) -> bool:
+        return self._current_uri is not None and self._history is not None and self._is_audio_only
+
     @property
     def media_name(self) -> str:
         return self._media_name

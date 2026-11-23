@@ -109,6 +109,14 @@ A feasibility prototype only, with no version planned yet
 
 ## Windows (next version, not released)
 
+- Changed: a new look. A side bar with Home, Music, Videos, TV and Now playing, then "Your library" (Albums,
+  Artists, Playlists, Favourites, Recently played) and Tools (Equalizer, Settings), with the theme at its foot.
+  A search box across the top, a Now Playing panel on the right (View → Now playing panel), and a player bar
+  along the bottom of every page but Playing. Home opens with a greeting, Play now and View library, then
+  Continue watching, Recently played and Recently added.
+- Changed: a new logo, headphones around a glowing play button, for the app, the taskbar and the installer.
+- Changed: seven new colour themes: Ocean Glow, Aurora Dream, Royal Purple, Golden Horizon, Midnight Glass,
+  Neon Spectrum and Crystal Light. A theme you chose before moves to the nearest new one.
 - Fixed: albums play in their own order, by disc and track number, instead of alphabetically. Songs are read
   once more, in the background, for their track and disc numbers and album artist.
 - New: an album shows its album artist, so a compilation is listed under the name on its cover.
