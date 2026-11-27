@@ -989,14 +989,14 @@ class FeatureFlowsTest {
         try {
             preferences.colourTheme = "light"
             ActivityScenario.launch(HomeActivity::class.java).use { home ->
-                assertEquals(0xFFF5F7FB.toInt(), home.read { background(it) })
-                assertEquals(0xFF111827.toInt(), home.read { ink(it) })
+                assertEquals(0xFFEAF6FF.toInt(), home.read { background(it) })
+                assertEquals(0xFF0B1B2B.toInt(), home.read { ink(it) })
             }
             // Android's dark theme drew these labels white, which couldn't be seen on a light page.
             ActivityScenario.launch(com.babarify.frame.ui.SettingsActivity::class.java).use { settings ->
                 settings.read { activity ->
                     val label = android.widget.RadioButton(activity)
-                    assertEquals(0xFF111827.toInt(), label.currentTextColor)
+                    assertEquals(0xFF0B1B2B.toInt(), label.currentTextColor)
                 }
             }
             open("audio_60s.m4a").use { player ->
@@ -1006,6 +1006,29 @@ class FeatureFlowsTest {
         } finally {
             preferences.colourTheme = before
         }
+    }
+
+    @Test
+    fun aRetiredThemeMovesToTheNearestOfTheSeven() {
+        val preferences = session().preferences
+        val before = preferences.colourTheme
+        try {
+            for ((old, new) in listOf("sunset" to "amber", "forest" to "aurora", "rose" to "neon")) {
+                preferences.colourTheme = old
+                assertEquals(new, com.babarify.frame.ui.ColourThemes.current(preferences).key)
+            }
+            assertEquals(7, com.babarify.frame.ui.ColourThemes.ALL.size)
+        } finally {
+            preferences.colourTheme = before
+        }
+    }
+
+    @Test
+    fun homeGreetsWithBothWordsCapitalised() {
+        assertEquals("Good Morning", context.getString(com.babarify.frame.ui.greeting(9)))
+        assertEquals("Good Afternoon", context.getString(com.babarify.frame.ui.greeting(14)))
+        assertEquals("Good Evening", context.getString(com.babarify.frame.ui.greeting(21)))
+        assertEquals("Good Evening", context.getString(com.babarify.frame.ui.greeting(2)))
     }
 
     @Test

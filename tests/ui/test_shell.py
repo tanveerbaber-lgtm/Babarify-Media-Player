@@ -91,8 +91,13 @@ def test_branding_and_home_page(window: MainWindow) -> None:
     assert not window.windowIcon().isNull()
     assert window.current_page() is window.home
     assert window.nav_home.isChecked()
-    texts = {label.text() for label in window.home.findChildren(pages.home.QLabel)}
-    assert {PRODUCT_NAME, TAGLINE} <= texts
+    names = {
+        label.accessibleName()
+        for label in window.findChildren(pages.home.QLabel)
+        if label.isVisibleTo(window)
+    }
+    assert PRODUCT_NAME in names  # the side bar's wordmark (0.12 branding)
+    assert TAGLINE in window._rail_wordmark.toolTip()
 
 
 def test_icon_resources_exist() -> None:

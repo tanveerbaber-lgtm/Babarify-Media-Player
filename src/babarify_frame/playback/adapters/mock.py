@@ -276,7 +276,7 @@ class MockEngine(EngineBase):
         self.calls.append("frame_step")
         self._set_position(self.get_playback_state().position_ms + 40)  # 25 fps
 
-    def _do_take_snapshot(self, path: str) -> None:
+    def _do_take_snapshot(self, path: str, width: int = 0) -> None:
         self.calls.append(f"snapshot:{path}")
         Path(path).write_bytes(_TINY_PNG)
 

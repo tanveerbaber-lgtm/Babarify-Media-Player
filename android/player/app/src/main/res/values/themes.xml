@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Colours from the desktop theme (ui/theme.py). -->
-    <color name="background">#070B15</color>
-    <color name="surface">#0E1628</color>
-    <color name="surface_raised">#16213A</color>
-    <color name="border">#22304D</color>
+    <!-- Ocean Glow, the default, from the desktop app's themes (core/themes.py, 0.12). -->
+    <color name="background">#061A35</color>
+    <color name="surface">#062444</color>
+    <color name="surface_raised">#062B51</color>
+    <color name="border">#073763</color>
     <color name="text">#E6EDF7</color>
-    <color name="text_muted">#A3B1C9</color>
-    <color name="accent">#3B82F6</color>
-    <color name="cyan">#22D3EE</color>
+    <color name="text_muted">#58B6CC</color>
+    <color name="accent">#0881D8</color>
+    <color name="cyan">#00D9FF</color>
     <color name="on_accent">#04101F</color>
     <color name="warning">#F59E0B</color>
 
@@ -56,68 +56,73 @@
 
     <!-- For Home, the library, playlists and Settings. The player stays dark: its controls sit on video. -->
     <style name="Colours.Light" parent="">
-        <item name="bgColor">#F5F7FB</item>
+        <item name="bgColor">#EAF6FF</item>
         <item name="surfaceColor">#FFFFFF</item>
-        <item name="raisedColor">#EAEEF5</item>
-        <item name="borderColor">#D5DCE8</item>
-        <item name="accentColor">#1D4ED8</item>
+        <item name="raisedColor">#DCEFFB</item>
+        <item name="borderColor">#B9DCF3</item>
+        <item name="accentColor">#0369A1</item>
         <item name="accent2Color">#0E7490</item>
-        <item name="inkColor">#111827</item>
-        <item name="inkMutedColor">#55627A</item>
+        <item name="inkColor">#0B1B2B</item>
+        <item name="inkMutedColor">#3F5F78</item>
         <item name="onAccentColor">#FFFFFF</item>
         <item name="rippleTint">#22000000</item>
-        <item name="trackColor">#55111827</item>
-        <item name="android:textColorHint">#55627A</item>
-        <item name="android:colorForeground">#111827</item>
+        <item name="trackColor">#550B1B2B</item>
+        <item name="android:textColorHint">#3F5F78</item>
+        <item name="android:colorForeground">#0B1B2B</item>
         <item name="android:colorBackgroundFloating">#FFFFFF</item>
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:windowLightNavigationBar">true</item>
     </style>
 
-    <!-- Colour themes, laid over the theme above. These are dark, so the text colours stay readable. -->
-    <style name="Colours.Sunset" parent="">
-        <item name="bgColor">#160A12</item>
-        <item name="surfaceColor">#241320</item>
-        <item name="raisedColor">#351C2E</item>
-        <item name="borderColor">#4A2A40</item>
-        <item name="accentColor">#F97316</item>
-        <item name="accent2Color">#FB7185</item>
-    </style>
-
-    <style name="Colours.Forest" parent="">
-        <item name="bgColor">#06130F</item>
-        <item name="surfaceColor">#0D211B</item>
-        <item name="raisedColor">#153228</item>
-        <item name="borderColor">#214A3B</item>
-        <item name="accentColor">#10B981</item>
-        <item name="accent2Color">#5EEAD4</item>
+    <!-- The theme gallery's other dark themes, laid over the theme above (desktop core/themes.py). -->
+    <style name="Colours.Aurora" parent="">
+        <item name="bgColor">#052B27</item>
+        <item name="surfaceColor">#043B31</item>
+        <item name="raisedColor">#044738</item>
+        <item name="borderColor">#045A44</item>
+        <item name="inkMutedColor">#7BC6A7</item>
+        <item name="accentColor">#00C987</item>
+        <item name="accent2Color">#55F5AE</item>
     </style>
 
     <style name="Colours.Violet" parent="">
-        <item name="bgColor">#0E0A1C</item>
-        <item name="surfaceColor">#191233</item>
-        <item name="raisedColor">#251B49</item>
-        <item name="borderColor">#3A2C69</item>
-        <item name="accentColor">#8B5CF6</item>
-        <item name="accent2Color">#E879F9</item>
+        <item name="bgColor">#180B35</item>
+        <item name="surfaceColor">#230E47</item>
+        <item name="raisedColor">#2C1055</item>
+        <item name="borderColor">#39146B</item>
+        <item name="inkMutedColor">#B292CC</item>
+        <item name="accentColor">#A055EC</item>
+        <item name="accent2Color">#D18AFF</item>
     </style>
 
     <style name="Colours.Amber" parent="">
-        <item name="bgColor">#11100B</item>
-        <item name="surfaceColor">#1E1B12</item>
-        <item name="raisedColor">#2C281A</item>
-        <item name="borderColor">#443D27</item>
-        <item name="accentColor">#F59E0B</item>
-        <item name="accent2Color">#FDE047</item>
+        <item name="bgColor">#281606</item>
+        <item name="surfaceColor">#3A2208</item>
+        <item name="raisedColor">#482C09</item>
+        <item name="borderColor">#5D3B0B</item>
+        <item name="inkMutedColor">#C9B384</item>
+        <item name="accentColor">#D99118</item>
+        <item name="accent2Color">#FFD36B</item>
     </style>
 
-    <style name="Colours.Rose" parent="">
-        <item name="bgColor">#170A10</item>
-        <item name="surfaceColor">#27111B</item>
-        <item name="raisedColor">#3A1828</item>
-        <item name="borderColor">#55253C</item>
-        <item name="accentColor">#E11D48</item>
-        <item name="accent2Color">#F9A8D4</item>
+    <style name="Colours.Midnight" parent="">
+        <item name="bgColor">#101820</item>
+        <item name="surfaceColor">#18212B</item>
+        <item name="raisedColor">#1F2933</item>
+        <item name="borderColor">#293440</item>
+        <item name="inkMutedColor">#B5BDC7</item>
+        <item name="accentColor">#6D7D96</item>
+        <item name="accent2Color">#DCEBFF</item>
+    </style>
+
+    <style name="Colours.Neon" parent="">
+        <item name="bgColor">#10102D</item>
+        <item name="surfaceColor">#1C1542</item>
+        <item name="raisedColor">#261953</item>
+        <item name="borderColor">#351F6C</item>
+        <item name="inkMutedColor">#C375B0</item>
+        <item name="accentColor">#00CFFF</item>
+        <item name="accent2Color">#FF42BD</item>
     </style>
 
     <style name="Theme.Babarify.Panel">

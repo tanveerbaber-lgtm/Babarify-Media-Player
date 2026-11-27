@@ -11,7 +11,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import QPoint, QRect, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QIcon, QLinearGradient, QPainter, QPaintEvent, QPen, QPixmap
+from PySide6.QtGui import QColor, QIcon, QLinearGradient, QPainter, QPainterPath, QPaintEvent, QPen, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -32,10 +32,13 @@ from PySide6.QtWidgets import (
 from babarify_frame import PRODUCT_NAME, TAGLINE
 from babarify_frame.library.models import HistoryEntry, MediaEntry
 from babarify_frame.ui import theme
-from babarify_frame.ui.widgets import format_time, glyph_icon
+from babarify_frame.ui.widgets import brand_logo, format_time, glyph_icon
 
 CONTINUE_LIMIT = 8
 RECENT_LIMIT = 8
+ADDED_LIMIT = 12
+ADDED_SIDE = 132  # Recently added covers (0.12)
+BANNER_LOGO = 170  # the banner logo's width: about 130 px tall, inside the banner's padding
 CARD_THUMB = QSize(192, 108)
 
 SHORTCUTS = (
@@ -89,6 +92,38 @@ def remaining_text(entry: HistoryEntry) -> str:
     return f"at {format_time(entry.position_ms)}"
 
 
+def greeting(now: float | None = None) -> str:
+    hour = time.localtime(now).tm_hour
+    return "Good Morning" if 5 <= hour < 12 else "Good Afternoon" if 12 <= hour < 18 else "Good Evening"
+
+
+def square_pixmap(picture: Path | None, side: int) -> QPixmap:
+    """A song's or video's picture as a rounded square, or a calm placeholder with a note."""
+    pixmap = QPixmap(side, side)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    path = QPainterPath()
+    path.addRoundedRect(0, 0, side, side, 12, 12)
+    painter.setClipPath(path)
+    image = QPixmap(str(picture)) if picture is not None else QPixmap()
+    if not image.isNull():
+        scaled = image.scaled(
+            side,
+            side,
+            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        painter.drawPixmap((side - scaled.width()) // 2, (side - scaled.height()) // 2, scaled)
+    else:
+        painter.fillRect(0, 0, side, side, QColor(theme.SURFACE_RAISED))
+        icon = glyph_icon("music", theme.TEXT_MUTED, theme.TEXT_DISABLED, size=64)
+        if icon is not None:
+            painter.drawPixmap(side // 4, side // 4, icon.pixmap(side // 2, side // 2))
+    painter.end()
+    return pixmap
+
+
 def card_pixmap(thumbnail: Path | None, progress: float) -> QPixmap:
     """Thumbnail letterboxed on black with the watched fraction drawn along the bottom."""
     pixmap = QPixmap(CARD_THUMB)
@@ -119,6 +154,8 @@ class HomePage(QWidget):
     play_requested = Signal(str)  # a path from history
     forget_requested = Signal(str)  # remove one path from history
     search_requested = Signal(str)  # words to look up in the library (M3)
+    play_now_requested = Signal()  # the banner's Play now (0.12 redesign)
+    library_requested = Signal()  # the banner's View library
 
     def __init__(self, logo: QIcon, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -133,8 +170,14 @@ class HomePage(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.addWidget(scroll)
         outer = QVBoxLayout(content)
-        outer.setContentsMargins(theme.XXL, theme.XXL, theme.XXL, theme.XL)
-        outer.addStretch(1)
+        outer.setContentsMargins(theme.XL, theme.S, theme.XL, theme.XL)
+        outer.setSpacing(theme.L)
+        self.banner = self._build_banner(logo)
+        outer.addWidget(self.banner)
+        self.history_panel = self._build_history()
+        outer.addWidget(self.history_panel)
+        self.added_panel = self._build_added()
+        outer.addWidget(self.added_panel)
 
         column = QVBoxLayout()
         column.setSpacing(theme.M)
@@ -148,10 +191,13 @@ class HomePage(QWidget):
             _label(TAGLINE, "tagline"),
         ]
         for widget in self._hero:
-            column.addWidget(widget, alignment=Qt.AlignmentFlag.AlignHCenter)
-        column.addSpacing(theme.L)
+            # The banner says hello now (0.12 redesign). Kept as hidden parts of the page: without a parent,
+            # showing one would open it as a window of its own, and the app couldn't quit.
+            widget.setParent(content)
+            widget.hide()
         # One search across music and videos (M3); the window looks the words up.
         self.search = QLineEdit()
+        self.search.setObjectName("homeSearch")
         self.search.setPlaceholderText("Search your music and videos")
         self.search.setAccessibleName("Search music and videos")
         self.search.setClearButtonEnabled(True)
@@ -207,9 +253,6 @@ class HomePage(QWidget):
         self._shortcuts = self._shortcut_grid()
         column.addWidget(self._shortcuts, alignment=Qt.AlignmentFlag.AlignHCenter)
         outer.addLayout(column)
-        outer.addSpacing(theme.XL)
-        self.history_panel = self._build_history()
-        outer.addWidget(self.history_panel)
         outer.addStretch(2)
         outer.addWidget(
             _label("Local playback only · No account · No telemetry", "caption"),
@@ -247,12 +290,101 @@ class HomePage(QWidget):
         return grid_widget
 
     # ------------------------------------------------------- history (M6)
+    def _build_banner(self, logo: QIcon) -> QFrame:
+        """ "Good evening", with Play now and View library (0.12 redesign). With a background picture chosen,
+        the page shows through it; otherwise a soft glow and the logo."""
+        banner = QFrame()
+        banner.setObjectName("heroBanner")
+        banner.setMinimumHeight(210)
+        row = QHBoxLayout(banner)
+        row.setContentsMargins(theme.XXL, theme.XL, theme.XXL, theme.XL)
+        text = QVBoxLayout()
+        text.setSpacing(theme.S)
+        text.addStretch(1)
+        self.greeting = QLabel(greeting())
+        self.greeting.setObjectName("heroGreeting")
+        text.addWidget(self.greeting)
+        text.addWidget(_label("Your music and videos, all on this PC.", "tagline"))
+        buttons = QHBoxLayout()
+        buttons.setSpacing(theme.M)
+        self.play_now_button = QPushButton("Play now")
+        self.play_now_button.setObjectName("primary")
+        self.play_now_button.setToolTip("Carry on with what you played last")
+        self.play_now_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.play_now_button.clicked.connect(self.play_now_requested)
+        self.library_button = QPushButton("View library")
+        self.library_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.library_button.clicked.connect(self.library_requested)
+        buttons.addWidget(self.play_now_button)
+        buttons.addWidget(self.library_button)
+        buttons.addStretch(1)
+        text.addSpacing(theme.S)
+        text.addLayout(buttons)
+        text.addStretch(1)
+        row.addLayout(text, stretch=1)
+        self._logo_icon = logo
+        self.banner_logo = QLabel()
+        self.banner_logo.setPixmap(brand_logo(logo, BANNER_LOGO))  # fits inside the banner, headband and all
+        self.banner_logo.setAccessibleName(f"{PRODUCT_NAME} logo")
+        row.addWidget(self.banner_logo, alignment=Qt.AlignmentFlag.AlignVCenter)
+        return banner
+
+    def _build_added(self) -> QWidget:
+        """Recently added: covers of the newest songs and videos in the library (0.12 redesign)."""
+        panel = QWidget()
+        box = QVBoxLayout(panel)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.setSpacing(theme.M)
+        box.addWidget(_label("Recently added", "sectionTitle"))
+        self.added_row = QWidget()
+        self.added_row.setObjectName("seeThrough")
+        self._added_box = QHBoxLayout(self.added_row)
+        self._added_box.setContentsMargins(0, 0, 0, 0)
+        self._added_box.setSpacing(theme.M)
+        self._added_box.addStretch(1)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setFixedHeight(ADDED_SIDE + 64)
+        scroll.setObjectName("seeThrough")
+        scroll.viewport().setObjectName("seeThrough")
+        scroll.setWidget(self.added_row)
+        box.addWidget(scroll)
+        self.added_cards: list[QToolButton] = []
+        panel.hide()
+        return panel
+
+    def set_recently_added(self, entries: list[tuple[str, str, Path | None]]) -> None:
+        """(path, title, picture) of the newest files; the row hides while there are none."""
+        for card in self.added_cards:
+            card.deleteLater()
+        self.added_cards = []
+        for path, title, picture in entries[:ADDED_LIMIT]:
+            card = QToolButton()
+            card.setObjectName("continueCard")
+            card.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+            card.setIcon(QIcon(square_pixmap(picture, ADDED_SIDE)))
+            card.setIconSize(QSize(ADDED_SIDE, ADDED_SIDE))
+            card.setText(card.fontMetrics().elidedText(title, Qt.TextElideMode.ElideRight, ADDED_SIDE))
+            card.setToolTip(path)
+            card.setAccessibleName(f"Play {title}")
+            card.setFixedWidth(ADDED_SIDE + 16)
+            card.setCursor(Qt.CursorShape.PointingHandCursor)
+            card.clicked.connect(lambda _=False, p=path: self.play_requested.emit(p))
+            self._added_box.insertWidget(self._added_box.count() - 1, card)
+            self.added_cards.append(card)
+        self.added_panel.setVisible(bool(self.added_cards))
+
+    def refresh_greeting(self) -> None:
+        self.greeting.setText(greeting())
+
     def _build_history(self) -> QWidget:
         panel = QWidget()
         box = QVBoxLayout(panel)
         box.setContentsMargins(0, 0, 0, 0)
         box.setSpacing(theme.M)
-        self.continue_title = _label("Continue watching", "subtitle")
+        self.continue_title = _label("Continue watching", "sectionTitle")
         box.addWidget(self.continue_title)
         self.continue_row = QWidget()
         # See-through, so the page shows behind the cards. Named "page", it would draw its own copy of
@@ -272,7 +404,7 @@ class HomePage(QWidget):
         row_scroll.setWidget(self.continue_row)
         self._continue_scroll = row_scroll
         box.addWidget(row_scroll)
-        self.recent_title = _label("Recently played", "subtitle")
+        self.recent_title = _label("Recently played", "sectionTitle")
         box.addWidget(self.recent_title)
         self.recent = QListWidget()
         self.recent.setAccessibleName("Recently played")
@@ -285,6 +417,7 @@ class HomePage(QWidget):
         return panel
 
     def refresh_theme(self) -> None:
+        self.banner_logo.setPixmap(brand_logo(self._logo_icon, BANNER_LOGO))  # light themes have their own
         icon = glyph_icon("drop", theme.CYAN, theme.TEXT_DISABLED, size=48)
         if self._drop_icon is not None and icon is not None:
             self._drop_icon.setPixmap(icon.pixmap(QSize(40, 40)))
@@ -338,8 +471,7 @@ class HomePage(QWidget):
         self.recent.setVisible(has_history)
         self.history_panel.setVisible(has_history)
         # With history, the page is a dashboard: hide the large logo and key hints.
-        for widget in (*self._hero, self._shortcuts):
-            widget.setVisible(not has_history)
+        self._shortcuts.setVisible(not has_history)
 
     def _play_item(self, item: QListWidgetItem) -> None:
         self.play_requested.emit(str(item.data(Qt.ItemDataRole.UserRole)))

@@ -145,6 +145,9 @@ class Preferences:
     background_picture: str = ""  # a picture of the person's own, behind the main pages
     always_on_top: bool = False  # the main window and the mini-player stay above other windows (M3)
     check_updates: bool = True  # 0.12: ask GitHub once a day whether a newer version is out
+    show_now_panel: bool = True  # 0.12 redesign: the Now Playing panel on the right of the pages
+    rail_folded: bool = False  # the side bar folded to its icons
+    library_open: bool = True  # the side bar's Your Library entries shown
     skipped_update: str = ""  # a version the user chose not to hear about again
     last_update_check: float = 0.0  # when the last check succeeded (seconds since 1970)
     show_status_bar: bool = False  # the line of technical details along the bottom of the window

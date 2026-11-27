@@ -280,7 +280,18 @@ class TvPage(QWidget):
         value = self.source.currentData()
         return int(value) if value is not None else None
 
+    def stop(self) -> None:
+        """When the window closes, before the library does: no more reading it from timers or updates."""
+        self._stopped = True
+        self._search_timer.stop()
+        self._guide_timer.stop()
+        self._bridge.blockSignals(True)
+
+    _stopped = False
+
     def _fill_groups(self) -> None:
+        if self._stopped:
+            return
         current = self.groups.currentItem()
         chosen = current.data(Qt.ItemDataRole.UserRole) if current is not None else ALL
         self.groups.blockSignals(True)
@@ -307,6 +318,8 @@ class TvPage(QWidget):
         self._fill_channels()
 
     def _fill_channels(self) -> None:
+        if self._stopped:
+            return
         item = self.groups.currentItem()
         key = item.data(Qt.ItemDataRole.UserRole) if item is not None else ALL
         group = None if key in (ALL, FAVOURITES) else str(key)

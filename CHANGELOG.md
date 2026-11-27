@@ -42,6 +42,16 @@ Release notes: [0.10.0](docs/release-notes/0.10.0.md).
 - New: sort songs by folder, oldest first, most played or year. Songs are read once more for their year.
 - New: volume from 1 to 100, with optional boost to 200.
 
+## Android (next version, not released)
+
+- Changed: the new logo from the Windows app, a rainbow neon sound wave running into a play button, for the
+  app icon, the opening animation, the widget and the top of Home. The light theme has its own version.
+- Changed: the seven colour themes of the Windows app: Ocean Glow, Aurora Dream, Royal Purple, Golden
+  Horizon, Midnight Glass, Neon Spectrum and Crystal Light. A theme you chose before moves to the nearest
+  new one.
+- New: Home greets you with Good Morning, Good Afternoon or Good Evening.
+- Changed: Recently Played, Most Played and Recently Added are written with capitals, as on Windows.
+
 ## Android 0.2.0-beta (ready to publish, 7 November 2026)
 
 Brings the Android app close to the Windows app. Release notes: [Android 0.2.0-beta](docs/release-notes/android-0.2.0-beta.md).
@@ -109,6 +119,23 @@ A feasibility prototype only, with no version planned yet
 
 ## Windows (next version, not released)
 
+- Changed: a new look. A side bar with Home, Music, Videos, TV and Now Playing, then "Your Library" (Albums,
+  Artists, Playlists, Favourites, Recently Played), which opens and closes like a drop-down, and Tools
+  (Equalizer, Settings), with the theme at its foot. An arrow halfway down its edge folds it to its icons
+  and back (View → Side bar names, Ctrl+Shift+B); the choice is remembered. A Now Playing panel on the
+  right (View → Now Playing panel), where the video that's playing carries on smoothly, or the song's cover
+  or animation shows (a click opens the Playing page), and a player bar along the bottom of every page but
+  Playing, which shows the video alone. Home opens with a greeting, Play now and View library, then
+  Continue watching, Recently played, Recently added and the search. The playlist buttons sit in tidy rows.
+- Changed: a new logo, a rainbow neon sound wave running into a play button, for the app, the side bar, the
+  taskbar and the installer. Crystal Light has its own version, with the name in dark letters.
+  The icon fills its square, comes in every size Windows uses, and the logos stay sharp when Windows
+  scales the display to 125% or 150%.
+- Fixed: changing the volume between 100% and 200% follows smoothly, without the sound stopping or
+  catching; only the first move past 100% takes a moment.
+- Fixed: Settings → Privacy's buttons had their names cut off at the top and bottom.
+- Changed: seven new colour themes: Ocean Glow, Aurora Dream, Royal Purple, Golden Horizon, Midnight Glass,
+  Neon Spectrum and Crystal Light. A theme you chose before moves to the nearest new one.
 - Fixed: albums play in their own order, by disc and track number, instead of alphabetically. Songs are read
   once more, in the background, for their track and disc numbers and album artist.
 - New: an album shows its album artist, so a compilation is listed under the name on its cover.

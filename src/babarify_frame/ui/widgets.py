@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 from functools import cache
+from pathlib import Path
 
 from PySide6.QtCore import QEvent, QPoint, QRectF, Qt, Signal
 from PySide6.QtGui import (
@@ -11,6 +12,7 @@ from PySide6.QtGui import (
     QFont,
     QFontDatabase,
     QFontMetricsF,
+    QGuiApplication,
     QIcon,
     QMouseEvent,
     QPainter,
@@ -53,6 +55,14 @@ GLYPHS = {
     "heart_filled": "\ueb52",
     "playlists": "\ue8fd",  # BulletedList
     "tv": "\ue7f4",  # TVMonitor (0.12)
+    "album": "\ue93c",  # MusicAlbum (0.12 side bar)
+    "artist": "\ue77b",  # Contact
+    "history": "\ue81c",  # History
+    "equalizer": "\ue9e9",  # Equalizer
+    "menu": "\ue700",  # GlobalNavigationButton: show or fold the side bar
+    "chevron_down": "\ue70d",  # an open section of the side bar
+    "chevron_right": "\ue76c",  # a closed one
+    "chevron_left": "\ue76b",  # fold the side bar
     "library": "",  # Library
 }
 
@@ -123,6 +133,7 @@ class VideoSurface(QWidget):
     """Native child window the engine renders into. Emits ``double_clicked`` for fullscreen."""
 
     double_clicked = Signal()
+    clicked = Signal()  # in the Now Playing panel, a click opens the Playing page (0.12)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -132,6 +143,11 @@ class VideoSurface(QWidget):
         self.setStyleSheet("background: black;")
         self.setAccessibleName("Video")
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mouseReleaseEvent(event)
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -246,3 +262,45 @@ def set_topmost(window: QWidget, enabled: bool) -> None:
     window.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, enabled)
     if visible:
         window.show()
+
+
+BRAND_DIR = Path(__file__).resolve().parent.parent / "resources" / "icons"
+
+
+def _brand_file(name: str) -> str:
+    """The light theme has its own version: a crisper glow, and the name in dark letters (0.12 branding)."""
+    from babarify_frame.ui import theme  # imported here: theme imports nothing from this module's callers
+
+    light = BRAND_DIR / f"{name}-light.png"
+    return str(light if theme.is_light() and light.is_file() else BRAND_DIR / f"{name}.png")
+
+
+def _screen_ratio() -> float:
+    """Pixels per point on the main screen: 1.25 or 1.5 when Windows scales the display up."""
+    screen = QGuiApplication.primaryScreen()
+    return max(1.0, screen.devicePixelRatio()) if screen is not None else 1.0
+
+
+def _sharp(image: QPixmap, width: int) -> QPixmap:
+    """``image`` ``width`` points wide, drawn with the screen's real pixels so it stays sharp when Windows
+    scales the display (0.12: scaled to points alone, it was enlarged and blurred by the scaling)."""
+    ratio = _screen_ratio()
+    sharp = image.scaledToWidth(round(width * ratio), Qt.TransformationMode.SmoothTransformation)
+    sharp.setDevicePixelRatio(ratio)
+    return sharp
+
+
+def brand_logo(fallback: QIcon, width: int) -> QPixmap:
+    """The neon mark, ``width`` points wide, for the theme on show; the app icon if the file is missing."""
+    image = QPixmap(_brand_file("babarify-logo"))
+    if image.isNull():
+        return fallback.pixmap(width, width)
+    return _sharp(image, width)
+
+
+def brand_wordmark(fallback: QIcon, width: int) -> QPixmap:
+    """The mark with "BABARIFY MEDIA PLAYER", ``width`` points wide, for the theme on show."""
+    image = QPixmap(_brand_file("babarify-wordmark"))
+    if image.isNull():
+        return brand_logo(fallback, width)
+    return _sharp(image, width)

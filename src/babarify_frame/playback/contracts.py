@@ -148,8 +148,8 @@ class PlaybackEngine(ABC):
         """Show the next (or previous) frame and stay paused."""
 
     @abstractmethod
-    def take_snapshot(self, path: str) -> None:
-        """Save the current frame as PNG at ``path`` (the folder must exist)."""
+    def take_snapshot(self, path: str, width: int = 0) -> None:
+        """Save the current frame as PNG at ``path`` (the folder must exist); ``width`` 0 is full size."""
 
     def equalizer_preset(self, name: str) -> EqualizerSettings:
         """The values of one of capabilities().equalizer_presets, enabled, ready to adjust."""
@@ -287,7 +287,7 @@ class EngineBase(PlaybackEngine):
     def _do_frame_step(self, backward: bool) -> None:
         raise PlaybackError(ErrorCode.UNSUPPORTED, "frame stepping is not supported")
 
-    def _do_take_snapshot(self, path: str) -> None:
+    def _do_take_snapshot(self, path: str, width: int = 0) -> None:
         raise PlaybackError(ErrorCode.UNSUPPORTED, "snapshots are not supported")
 
     # ------------------------------------------------------- public API
@@ -502,7 +502,7 @@ class EngineBase(PlaybackEngine):
             self.pause()
         self._do_frame_step(backward)
 
-    def take_snapshot(self, path: str) -> None:
+    def take_snapshot(self, path: str, width: int = 0) -> None:
         self._require("take_snapshot")
         if not self.get_capabilities().supports_snapshot:
             raise PlaybackError(ErrorCode.UNSUPPORTED, "snapshots are not supported")
@@ -514,7 +514,7 @@ class EngineBase(PlaybackEngine):
         info = self.get_media_info()
         if info is not None and info.video_codec is None and info.audio_codec is not None:
             raise PlaybackError(ErrorCode.UNSUPPORTED, "there is no picture to save (audio only)")
-        self._do_take_snapshot(str(target))
+        self._do_take_snapshot(str(target), max(0, min(width, 4096)))
 
     def set_subtitle_style(self, style: SubtitleStyle) -> None:
         self._require("set_subtitle_style")

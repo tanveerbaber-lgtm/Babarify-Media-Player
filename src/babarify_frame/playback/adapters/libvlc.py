@@ -64,6 +64,7 @@ from babarify_frame.core.network import STREAM_SCHEMES, is_network_uri, uri_sche
 from babarify_frame.playback.adapters._engine_paths import add_dll_dir, find_vlc_dir
 from babarify_frame.playback.adapters.libvlc_audio import (
     LIMITER_ARGS,
+    LIMITER_RATIO,
     FilterChain,
     boost_db,
     engine_equalizer,
@@ -140,7 +141,9 @@ OPEN_TIMEOUT_S = 30.0  # network streams: give up if nothing plays by then (M8)
 MAX_PLAYLIST_DEPTH = 3  # a playlist entry that is itself a playlist, and so on
 # Instance options for every player instance. --no-lua: Lua playlist and artwork scripts would fetch web
 # pages on their own, around the stream proxy (M8).
-BASE_ARGS = ("--no-video-title-show", "--no-lua", *LIMITER_ARGS)
+# --no-snapshot-preview (0.12): the Now Playing panel takes a small picture each second; libVLC would flash
+# each one over the video.
+BASE_ARGS = ("--no-video-title-show", "--no-lua", "--no-snapshot-preview", *LIMITER_ARGS)
 # File tags shown in the media information panel (libVLC Meta name, label).
 _META_FIELDS = (
     ("Title", "Title"), ("Artist", "Artist"), ("AlbumArtist", "Album artist"), ("Album", "Album"),
@@ -405,6 +408,10 @@ class LibVlcEngine(EngineBase):
         self._geometry: tuple[str, str, float] = ("", "", 0.0)
         self._equalizer = EqualizerSettings()
         self._level = 100  # the volume asked for; above 100 it is boost in the filter chain (M2)
+        self._applied_boost_level = 100  # the volume whose boost the filter chain has now
+        # Once boost is used, the equalizer and limiter stay in the chain and follow the volume live; at
+        # 100 % and below they change nothing (0.12: every rebuild made the sound stop for a moment).
+        self._boost_kept = False
         self._filters: FilterChain | None = None
         self.levelling_applied = ""  # the ReplayGain mode last set on the audio output (0.12)
         self._song = False  # the open file is a song: volume levelling applies to it
@@ -756,7 +763,10 @@ class LibVlcEngine(EngineBase):
         if self._player is None:
             return
         boost = boost_db(self._level)
+        self._applied_boost_level = self._level
         values = engine_equalizer(self._equalizer, boost)
+        if values is None and self._boost_kept:
+            values = (PREAMP_UNITY_DB, (0.0,) * len(self._equalizer.bands_db))  # flat: changes nothing
         if values is None:
             self._player.set_equalizer(None)
         else:
@@ -770,7 +780,11 @@ class LibVlcEngine(EngineBase):
         # set_equalizer replaced the filter list with "equalizer": put the effect and limiter back.
         if self._filters is not None:
             effect = AUDIO_EFFECTS.get(self._options.audio_effect, "")
-            self._filters.apply(self._player, filter_chain(values is not None, effect, boost > 0))
+            limiter = boost > 0 or self._boost_kept
+            self._filters.apply(self._player, filter_chain(values is not None, effect, limiter))
+            if self._boost_kept:
+                ratio = LIMITER_RATIO if boost > 0 else 1.0  # 1: the limiter changes nothing
+                self._filters.set_float(self._player, b"compressor-ratio", ratio)
 
     def set_stream_headers(self, user_agent: str, referrer: str) -> None:
         self._stream_headers = (user_agent, referrer)
@@ -841,16 +855,34 @@ class LibVlcEngine(EngineBase):
     def _do_frame_step(self, backward: bool) -> None:
         self._player.next_frame()
 
-    def _do_take_snapshot(self, path: str) -> None:
-        if self._player.video_take_snapshot(0, path, 0, 0) != 0:
+    def _do_take_snapshot(self, path: str, width: int = 0) -> None:
+        if self._player.video_take_snapshot(0, path, width, 0) != 0:  # height 0: kept in proportion
             self._notice(ErrorCode.ENGINE_FAILURE, "the snapshot could not be saved")
 
     def _do_set_volume(self, level: int) -> None:
-        old_boost = boost_db(self._level)
+        old_boost = boost_db(self._applied_boost_level)
         self._level = level
         self._player.audio_set_volume(min(level, 100))  # libVLC's own gain above 100 % clips (M2)
-        if boost_db(level) != old_boost:
+        if boost_db(level) == old_boost:
+            return
+        if self._boost_kept and self._set_boost_live():
+            return  # the equalizer and limiter take the new boost as the sound plays, with no gap (0.12)
+        if level > 100 or old_boost > 0 or self._boost_kept:
+            # Boost is the equalizer's preamp, with the limiter after it. Adding them rebuilds libVLC's
+            # audio filters, and the sound stops for a moment: done once, the first time, then kept.
+            self._boost_kept = self._filters is not None
             self._apply_equalizer()
+
+    def _set_boost_live(self) -> bool:
+        """Change the boost in the playing equalizer and limiter, without rebuilding the sound's filters."""
+        boost = boost_db(self._level)
+        values = engine_equalizer(self._equalizer, boost)
+        preamp = values[0] if values is not None else PREAMP_UNITY_DB
+        if self._filters is None or not self._filters.set_float(self._player, b"equalizer-preamp", preamp):
+            return False
+        self._filters.set_float(self._player, b"compressor-ratio", LIMITER_RATIO if boost > 0 else 1.0)
+        self._applied_boost_level = self._level
+        return True
 
     def _do_set_muted(self, enabled: bool) -> None:
         self._player.audio_set_mute(enabled)

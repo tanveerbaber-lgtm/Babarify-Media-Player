@@ -22,7 +22,7 @@ from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QRect, QSize, Qt, QTimer
+from PySide6.QtCore import QEvent, QObject, QRect, QSize, Qt, QTimer
 from PySide6.QtGui import (
     QAction,
     QCloseEvent,
@@ -35,9 +35,11 @@ from PySide6.QtGui import (
     QImage,
     QKeySequence,
     QPainter,
+    QResizeEvent,
     QShowEvent,
 )
 from PySide6.QtWidgets import (
+    QAbstractButton,
     QApplication,
     QButtonGroup,
     QFileDialog,
@@ -47,6 +49,8 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMenu,
     QMessageBox,
+    QPushButton,
+    QScrollArea,
     QSizePolicy,
     QStackedWidget,
     QToolButton,
@@ -66,7 +70,7 @@ from babarify_frame.iptv.service import IptvService
 from babarify_frame.iptv.store import ChannelEntry, IptvStore
 from babarify_frame.library import backup, legacy_ai
 from babarify_frame.library.database import LibraryDatabase
-from babarify_frame.library.models import HistoryEntry
+from babarify_frame.library.models import HistoryEntry, SortOrder
 from babarify_frame.library.service import LibraryService
 from babarify_frame.playback.controller import PlaybackController
 from babarify_frame.playback.factory import EngineFactory
@@ -81,7 +85,8 @@ from babarify_frame.ui.lyrics_dialog import LyricsDialog
 from babarify_frame.ui.media_info import MediaInfoDialog
 from babarify_frame.ui.mini_player import MiniPlayer
 from babarify_frame.ui.network import NetworkStreamDialog
-from babarify_frame.ui.pages.home import SHORTCUTS, HomePage
+from babarify_frame.ui.now_playing import NowPanel, NowPlaying, PlayerBar
+from babarify_frame.ui.pages.home import ADDED_LIMIT, SHORTCUTS, HomePage
 from babarify_frame.ui.pages.library import HiddenFilesDialog, LibraryPage
 from babarify_frame.ui.pages.player import VOLUME_STEP, PlayerPage
 from babarify_frame.ui.pages.settings import SettingsPage, theme_swatch
@@ -89,8 +94,12 @@ from babarify_frame.ui.pages.tv import TvPage
 from babarify_frame.ui.report import ReportDialog
 from babarify_frame.ui.subtitles import SUBTITLE_FILTER
 from babarify_frame.ui.update_notice import UpdateBar, UpdateChecker, UpdateResult
-from babarify_frame.ui.widgets import format_time, glyph_icon, set_topmost
+from babarify_frame.ui.widgets import brand_logo, brand_wordmark, format_time, glyph_icon, set_topmost
 
+RAIL_WIDTH = 196  # the side bar (0.12 redesign)
+RAIL_FOLDED = 64  # folded: icons only
+RAIL_TAB = QSize(18, 48)  # the arrow on the side bar's edge that folds and opens it
+PANEL_MIN_WIDTH = 1180  # narrower windows give the pages the Now Playing panel's room
 # The same types the library scans, so the Open dialog and the library always agree.
 MEDIA_FILTER = f"Media files ({' '.join('*' + ext for ext in sorted(MEDIA_EXTENSIONS))});;All files (*)"
 MIN_SIZE = QSize(560, 400)
@@ -146,10 +155,14 @@ class MainWindow(QMainWindow):
 
         root = QWidget()
         root.setObjectName("root")
-        row = QHBoxLayout(root)
+        frame = QVBoxLayout(root)
+        frame.setContentsMargins(0, 0, 0, 0)
+        frame.setSpacing(0)
+        row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(0)
-        self._nav_icons: list[tuple[QToolButton, str]] = []
+        frame.addLayout(row, stretch=1)
+        self._nav_icons: list[tuple[QAbstractButton, str]] = []
         self._rail = self._build_rail(icon)
         row.addWidget(self._rail)
         column = QVBoxLayout()
@@ -158,8 +171,24 @@ class MainWindow(QMainWindow):
         self.update_bar = UpdateBar()
         self.update_bar.skipped.connect(lambda version: self._remember(skipped_update=version))
         column.addWidget(self.update_bar)
-        column.addWidget(self._pages, stretch=1)
+        body = QHBoxLayout()
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(0)
+        body.addWidget(self._pages, stretch=1)
+        self._now = NowPlaying(self.player)
+        # Before the panel follows the player, so a video that starts shows in it at once (0.12).
+        self._now.changed.connect(lambda: self._place_video())
+        self.player.video.clicked.connect(self._on_video_clicked)
+        self.now_panel = NowPanel(self._now)
+        body.addWidget(self.now_panel)
+        column.addLayout(body, stretch=1)
         row.addLayout(column, stretch=1)
+        self.player_bar = PlayerBar(self._now)
+        frame.addWidget(self.player_bar)
+        for view in (self.player_bar, self.now_panel):
+            view.open_player.connect(lambda: self.show_page(self.player))
+            view.queue_requested.connect(self.show_queue)
+        self.player_bar.mini_requested.connect(self.enter_mini_player)
         self._update_bridge = UiBridge(self)
         self._update_bridge.delivered.connect(self._on_update_result)
         self._updates = UpdateChecker(self._update_bridge)
@@ -175,67 +204,205 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Version {__version__} · No account · No telemetry")
         self._restore_geometry()
         self.statusBar().setVisible(self._prefs.show_status_bar)
+        self.set_rail_folded(self._prefs.rail_folded)
         self.show_page(self.home)
 
     # ------------------------------------------------------------ layout
     def _build_rail(self, icon: QIcon) -> QFrame:
+        """The side bar (0.12 redesign): the pages, then "Your library" and "Tools", the theme at the foot."""
         rail = QFrame()
         rail.setObjectName("navRail")
-        rail.setFixedWidth(100)  # the longest label, Animation, has to fit
-        box = QVBoxLayout(rail)
-        box.setContentsMargins(0, theme.L, 0, theme.M)
-        box.setSpacing(theme.XS)
-        logo = QLabel()
-        logo.setPixmap(icon.pixmap(36, 36))
-        logo.setAccessibleName(f"{PRODUCT_NAME} logo")
-        box.addWidget(logo, alignment=Qt.AlignmentFlag.AlignHCenter)
-        box.addSpacing(theme.L)
+        rail.setFixedWidth(RAIL_WIDTH)
+        outer = QVBoxLayout(rail)
+        outer.setContentsMargins(0, 0, 0, 0)
+        # In a short window the side bar scrolls rather than squeezing its entries together.
+        scroll = QScrollArea()
+        scroll.setObjectName("railScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        content = QWidget()
+        content.setObjectName("seeThrough")
+        scroll.viewport().setObjectName("seeThrough")
+        scroll.setWidget(content)
+        outer.addWidget(scroll)
+        box = QVBoxLayout(content)
+        box.setContentsMargins(theme.M, theme.L, theme.M, theme.M)
+        box.setSpacing(2)
+        # The name in the new branding (0.12): the neon mark with "BABARIFY MEDIA PLAYER"; folded, the mark.
+        self._brand_icon = icon
+        self._rail_wordmark = QLabel()
+        self._rail_wordmark.setAccessibleName(PRODUCT_NAME)
+        self._rail_wordmark.setToolTip(f"{PRODUCT_NAME} · {TAGLINE}")
+        self._rail_mark = QLabel()
+        self._rail_mark.setAccessibleName(PRODUCT_NAME)
+        self._rail_mark.hide()
+        box.addWidget(self._rail_wordmark, alignment=Qt.AlignmentFlag.AlignHCenter)
+        box.addWidget(self._rail_mark, alignment=Qt.AlignmentFlag.AlignHCenter)
+        self._draw_rail_brand()
+        self._rail_texts: list[QWidget] = []
+        # Folding: an arrow tab on the side bar's edge, halfway down, over its contents (0.12, the owner's
+        # choice, in place of a menu button at the top). It follows the side bar's size.
+        self.rail_toggle = QToolButton(rail)
+        self.rail_toggle.setObjectName("railToggle")
+        self.rail_toggle.setFixedSize(RAIL_TAB)
+        self.rail_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.rail_toggle.clicked.connect(lambda: self.set_rail_folded(not self._prefs.rail_folded))
+        rail.installEventFilter(self)
+        box.addSpacing(theme.M)
         self._nav = QButtonGroup(self)
         self._nav.setExclusive(True)
         self.nav_home = self._nav_button("home", "Home", "Home (Ctrl+1)", self.home)
         self.nav_music = self._nav_button("music", "Music", "Songs, albums, artists, genres (Ctrl+L)", None)
         self.nav_videos = self._nav_button("now_playing", "Videos", "Your videos", None)
-        self.nav_playlists = self._nav_button("playlists", "Playlists", "Your playlists", None)
-        self._library_buttons = (
-            (self.nav_music, "music"),
-            (self.nav_videos, "videos"),
-            (self.nav_playlists, "playlists"),
-        )
-        for button, section in self._library_buttons:
-            self._nav.addButton(button)
-            button.clicked.connect(lambda _=False, s=section: self.show_library(s))
-        self.nav_library = self.nav_music  # its name before M3
         self.nav_tv = self._nav_button("tv", "TV", "TV channels from your lists", self.tv)
         self.nav_tv.setVisible(self._prefs.network_streams)
-        self.nav_player = self._nav_button("play", "Playing", "Now Playing (Ctrl+2)", self.player)
+        self.nav_player = self._nav_button("play", "Now Playing", "Now Playing (Ctrl+2)", self.player)
+        self.nav_albums = self._nav_button("album", "Albums", "Your albums", None)
+        self.nav_artists = self._nav_button("artist", "Artists", "Your artists", None)
+        self.nav_playlists = self._nav_button("playlists", "Playlists", "Your playlists", None)
+        self.nav_favourites = self._nav_button("heart", "Favourites", "Your favourite songs", None)
+        self.nav_recent = self._nav_button("history", "Recently Played", "Songs you played lately", None)
+        self.nav_equalizer = self._nav_button("equalizer", "Equalizer", "Equalizer and sound (Ctrl+E)", None)
+        self.nav_equalizer.setCheckable(False)
+        self.nav_equalizer.clicked.connect(self.show_enhancements)
         self.nav_settings = self._nav_button("settings", "Settings", "Settings (Ctrl+3)", self.settings)
-        for button in (
-            self.nav_home,
-            self.nav_music,
-            self.nav_videos,
-            self.nav_playlists,
-            self.nav_tv,
-            self.nav_player,
-        ):
+        # (button, section, tab, automatic playlist): what each library button shows (0.12)
+        self._library_buttons = (
+            (self.nav_music, "music", "Songs", None),
+            (self.nav_videos, "videos", None, None),
+            (self.nav_albums, "music", "Albums", None),
+            (self.nav_artists, "music", "Artists", None),
+            (self.nav_playlists, "playlists", None, None),
+            (self.nav_favourites, "playlists", None, "Favourites"),
+            (self.nav_recent, "playlists", None, "Recently played"),
+        )
+        for button, section, tab, automatic in self._library_buttons:
+            self._nav.addButton(button)
+            button.clicked.connect(
+                lambda _=False, s=section, t=tab, a=automatic: self.show_library(s, tab=t, automatic=a)
+            )
+        self.nav_library = self.nav_music  # its name before M3
+        for button in (self.nav_home, self.nav_music, self.nav_videos, self.nav_tv, self.nav_player):
             box.addWidget(button)
-        box.addStretch(1)
+        box.addSpacing(theme.M)
+        # "Your Library" opens and closes like a drop-down; the choice is remembered (0.12).
+        self.library_toggle = QPushButton("Your Library")
+        self.library_toggle.setObjectName("railSectionToggle")
+        self.library_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.library_toggle.setCheckable(True)
+        self.library_toggle.setChecked(self._prefs.library_open)
+        self.library_toggle.toggled.connect(self.set_library_open)
+        self._rail_texts.append(self.library_toggle)
+        box.addWidget(self.library_toggle)
+        self._library_entries = (
+            self.nav_albums,
+            self.nav_artists,
+            self.nav_playlists,
+            self.nav_favourites,
+            self.nav_recent,
+        )
+        for button in self._library_entries:
+            box.addWidget(button)
+        box.addSpacing(theme.M)
+        box.addWidget(self._rail_section("Tools"))
+        box.addWidget(self.nav_equalizer)
         box.addWidget(self.nav_settings)
+        box.addStretch(1)
+        self.nav_theme = self._nav_button("theme", "Theme", "Colour theme", None)
+        self.nav_theme.setCheckable(False)
+        box.addWidget(self.nav_theme)
+        # The theme list opens from a click: a menu attached to the button would shift its icon and text.
+        self.nav_theme.clicked.connect(
+            lambda: self.theme_menu.exec(self.nav_theme.mapToGlobal(self.nav_theme.rect().topRight()))
+        )
+        self._rail = rail
+        self._rail_box = box
         return rail
 
-    def _nav_button(self, glyph: str, text: str, tip: str, page: QWidget | None) -> QToolButton:
-        button = QToolButton()
+    def set_library_open(self, opened: bool) -> None:
+        """Your Library's entries shown or folded away. The folded side bar always shows every icon."""
+        if opened != self._prefs.library_open:
+            self._remember(library_open=opened)
+        if self.library_toggle.isChecked() != opened:
+            self.library_toggle.setChecked(opened)
+        for button in self._library_entries:
+            button.setVisible(opened or self._prefs.rail_folded)
+        chevron = "chevron_down" if opened else "chevron_right"
+        arrow = glyph_icon(chevron, theme.TEXT_MUTED, theme.TEXT_DISABLED, size=48)
+        if arrow is not None:
+            self.library_toggle.setIcon(arrow)
+            self.library_toggle.setIconSize(QSize(12, 12))
+        self.library_toggle.setToolTip(
+            "Hide your library's entries" if opened else "Show your library's entries"
+        )
+        self.library_toggle.setAccessibleName(f"Your Library, {'open' if opened else 'closed'}")
+
+    def _draw_rail_toggle(self) -> None:
+        """The arrow points the way the side bar will go: left to fold it, right to open it."""
+        glyph = "chevron_right" if self._prefs.rail_folded else "chevron_left"
+        arrow = glyph_icon(glyph, theme.TEXT, theme.TEXT_DISABLED, size=48, weight=0.04)
+        if arrow is not None:
+            self.rail_toggle.setIcon(arrow)
+            self.rail_toggle.setIconSize(QSize(14, 14))
+        else:
+            self.rail_toggle.setText(">" if self._prefs.rail_folded else "<")
+
+    def _place_rail_toggle(self) -> None:
+        tab = self.rail_toggle
+        tab.move(self._rail.width() - tab.width(), (self._rail.height() - tab.height()) // 2)
+        tab.raise_()
+
+    def _draw_rail_brand(self) -> None:
+        """The side bar's logo, in the version for the theme on show (light themes have their own)."""
+        self._rail_wordmark.setPixmap(brand_wordmark(self._brand_icon, RAIL_WIDTH - 2 * theme.M - 8))
+        self._rail_mark.setPixmap(brand_logo(self._brand_icon, RAIL_FOLDED - 18))
+
+    def _rail_section(self, text: str) -> QLabel:
+        label = QLabel(text)
+        label.setObjectName("railSection")
+        self._rail_texts.append(label)
+        return label
+
+    def set_rail_folded(self, folded: bool) -> None:
+        """The side bar shown in full, or folded to its icons (names on hover) for more room (0.12)."""
+        if folded != self._prefs.rail_folded:
+            self._remember(rail_folded=folded)
+        self._rail.setFixedWidth(RAIL_FOLDED if folded else RAIL_WIDTH)
+        for widget in self._rail_texts:
+            widget.setVisible(not folded)
+        for button, _glyph in self._nav_icons:
+            if isinstance(button, QPushButton) and button.objectName() == "navButton":
+                name = button.property("label") or button.text()
+                button.setProperty("label", name)
+                button.setText("" if folded else str(name))
+                button.setProperty("folded", folded)
+                button.style().unpolish(button)
+                button.style().polish(button)
+        self.rail_toggle.setToolTip("Show the side bar" if folded else "Fold the side bar to its icons")
+        self.rail_toggle.setAccessibleName(self.rail_toggle.toolTip())
+        self._draw_rail_toggle()
+        self._place_rail_toggle()
+        self._rail_wordmark.setVisible(not folded)
+        self._rail_mark.setVisible(folded)
+        self.set_library_open(self._prefs.library_open)  # folded, every icon shows
+        if hasattr(self, "rail_action"):
+            self.rail_action.setChecked(not folded)
+
+    def _nav_button(self, glyph: str, text: str, tip: str, page: QWidget | None) -> QPushButton:
+        """A side bar entry: icon and name, left aligned (0.12 redesign)."""
+        button = QPushButton(text)
         button.setObjectName("navButton")
-        button.setText(text)
         button.setToolTip(tip)
-        button.setAccessibleName(text if text != "Playing" else "Now Playing")
+        button.setAccessibleName(text)
         self._nav_icons.append((button, glyph))
         nav_icon = glyph_icon(glyph, theme.TEXT, theme.TEXT_DISABLED, size=64, weight=0.03)
         if nav_icon is not None:
             button.setIcon(nav_icon)
-            button.setIconSize(QSize(26, 26))
-        button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+            button.setIconSize(QSize(20, 20))
         button.setCheckable(True)
-        button.setFixedHeight(68)
+        button.setFixedHeight(34)
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
         button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         if page is not None:
             self._nav.addButton(button)
@@ -446,6 +613,18 @@ class MainWindow(QMainWindow):
         # The colour theme and the animation used to have buttons on the side bar (until M3).
         self.theme_menu = view_menu.addMenu("Colour &theme")
         self.theme_menu.aboutToShow.connect(self._fill_theme_menu)
+        self.rail_action = QAction("Side &bar names", self)
+        self.rail_action.setCheckable(True)
+        self.rail_action.setShortcut(K("Ctrl+Shift+B"))
+        self.rail_action.setChecked(not self._prefs.rail_folded)
+        self.rail_action.toggled.connect(lambda shown: self.set_rail_folded(not shown))
+        self.addAction(self.rail_action)
+        view_menu.addAction(self.rail_action)
+        self.now_panel_action = QAction("&Now Playing panel", self)
+        self.now_panel_action.setCheckable(True)
+        self.now_panel_action.setChecked(self._prefs.show_now_panel)
+        self.now_panel_action.toggled.connect(self.set_now_panel)
+        view_menu.addAction(self.now_panel_action)
         self.animation_menu = view_menu.addMenu("&Animation for audio")
         self.animation_menu.aboutToShow.connect(self._fill_animation_menu)
         help_menu = menus.addMenu("&Help")
@@ -493,6 +672,8 @@ class MainWindow(QMainWindow):
         self.library.status_changed.connect(self.statusBar().showMessage)
         self.library.sort_changed.connect(self._on_library_sort)
         self.home.play_requested.connect(self.open_path)
+        self.home.play_now_requested.connect(self.play_now)
+        self.home.library_requested.connect(lambda: self.show_library("music", tab="Songs"))
         self.home.search_requested.connect(
             lambda text: self.home.set_search_results(self.library_service.db.search_everything(text))
         )
@@ -539,8 +720,8 @@ class MainWindow(QMainWindow):
             (self.nav_tv, self.tv),
         ):
             button.setChecked(target is page)
-        for button, section in self._library_buttons:
-            button.setChecked(page is self.library and self.library.section == section)
+        self._sync_library_buttons(page)
+        self._update_chrome(page)
         if page is self.player:
             self.player.setFocus()
         elif page is self.home and self._home_dirty:
@@ -810,10 +991,29 @@ class MainWindow(QMainWindow):
     def refresh_home(self) -> None:
         self._home_dirty = False
         db = self.library_service.db
+        self.home.refresh_greeting()
+        newest = db.media(sort=SortOrder.DATE_ADDED, limit=ADDED_LIMIT)
+        self.home.set_recently_added(
+            [(e.path, e.display_title, self.library_service.thumbnail_path(e.thumbnail)) for e in newest]
+        )
         if not self._prefs.remember_history:
             self.home.set_history([], [], lambda _e: None)
             return
         self.home.set_history(db.continue_watching(), db.recent(), self._thumbnail_for)
+
+    def play_now(self) -> None:
+        """The banner's Play now: carry on with what was playing; else the newest file in the library."""
+        db = self.library_service.db
+        if self._prefs.remember_history:
+            for entry in (*db.continue_watching(1), *db.recent(1)):
+                if entry.available:
+                    self.open_path(entry.path)
+                    return
+        newest = db.media(sort=SortOrder.DATE_ADDED, limit=1)
+        if newest:
+            self.open_path(newest[0].path)
+        else:
+            self.choose_file()
 
     def _thumbnail_for(self, entry: HistoryEntry) -> Path | None:
         return self.library_service.thumbnail_path(entry.thumbnail)
@@ -991,9 +1191,10 @@ class MainWindow(QMainWindow):
         if self.current_page() is not self.player:
             self.show_page(self.player)
         self._was_maximized = self.isMaximized()
-        for widget in (self._rail, self.menuBar(), self.statusBar()):
+        for widget in (self._rail, self.menuBar(), self.statusBar(), self.update_bar):
             widget.hide()
         self.showFullScreen()
+        self._update_chrome()
         self.player.set_fullscreen_mode(True)
 
     def exit_fullscreen(self) -> None:
@@ -1007,6 +1208,7 @@ class MainWindow(QMainWindow):
         for widget in (self._rail, self.menuBar()):
             widget.show()
         self.statusBar().setVisible(self._prefs.show_status_bar)
+        self._update_chrome()
 
     # -------------------------------------------------------- preferences
     def _restore_geometry(self) -> None:
@@ -1053,6 +1255,10 @@ class MainWindow(QMainWindow):
             self._apply_background()
             self.player.refresh_theme()
             self.home.refresh_theme()
+            self.player_bar.refresh_theme()
+            self.now_panel.refresh_theme()
+            self._draw_rail_brand()
+            self._draw_rail_toggle()
             for button, glyph in self._nav_icons:
                 nav_icon = glyph_icon(glyph, theme.TEXT, theme.TEXT_DISABLED, size=64, weight=0.03)
                 if nav_icon is not None:
@@ -1124,11 +1330,80 @@ class MainWindow(QMainWindow):
         if event.type() == QEvent.Type.ActivationChange and self.isActiveWindow():
             self._keep_on_top(self)
 
-    def show_library(self, section: str) -> None:
-        """Music, Videos or Playlists (M3): one page, showing one part of the library at a time."""
+    def show_library(self, section: str, tab: str | None = None, automatic: str | None = None) -> None:
+        """Music, Videos or Playlists (M3): one page, showing one part of the library at a time. Since the
+        0.12 side bar, also straight to a tab (Albums, Artists) or an automatic playlist (Favourites)."""
         if self.library.section != section:
             self.library.set_section(section)
+        if tab is not None:
+            names = [self.library.tabs.tabText(i) for i in range(self.library.tabs.count())]
+            if tab in names:
+                self.library.tabs.setCurrentIndex(names.index(tab))
+        if automatic is not None:
+            self.library.playlists.show_automatic(automatic)
         self.show_page(self.library)
+
+    def _sync_library_buttons(self, page: QWidget) -> None:
+        """The side bar lights the button for what the library page shows now."""
+        current = self.library.tabs.tabText(self.library.tabs.currentIndex())
+        automatic = self.library.playlists.current_automatic
+        best = None
+        for button, section, tab, auto in self._library_buttons:
+            if page is self.library and self.library.section == section:
+                if section == "playlists":
+                    if auto == automatic:
+                        best = button
+                elif tab is None or tab == current:
+                    best = button
+        for button, _section, _tab, _auto in self._library_buttons:
+            button.setChecked(button is best)
+
+    def _update_chrome(self, page: QWidget | None = None) -> None:
+        """The player bar and Now Playing panel step aside on the Playing page, which has its own controls,
+        and in full screen; the panel also when the user hid it or the window is narrow (0.12)."""
+        page = page or self.current_page()
+        full = self.isFullScreen()
+        self.player_bar.setVisible(page is not self.player and not full)
+        self.now_panel.setVisible(
+            page is not self.player
+            and not full
+            and self._prefs.show_now_panel
+            and self.width() >= PANEL_MIN_WIDTH
+        )
+        self._place_video(page)
+
+    def _place_video(self, page: QWidget | None = None) -> None:
+        """A video plays on, live, in the Now Playing panel while another page shows, and comes back to the
+        Playing page and full screen as soon as they show (0.12)."""
+        if not hasattr(self, "now_panel"):
+            return  # still being built
+        lend = (
+            self.player.has_video
+            and self.now_panel.isVisibleTo(self)
+            and (page or self.current_page()) is not self.player
+            and not self.isFullScreen()
+        )
+        if lend != self.player.video_lent:
+            self.player.lend_video(self.now_panel.video_slot if lend else None)
+            self.now_panel.follow_video()  # the cover makes way before the panel is drawn again
+
+    def _on_video_clicked(self) -> None:
+        if self.player.video_lent:
+            self.show_page(self.player)
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if watched is getattr(self, "_rail", None) and event.type() == QEvent.Type.Resize:
+            self._place_rail_toggle()  # the arrow stays halfway down the side bar's edge
+        return super().eventFilter(watched, event)
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        if hasattr(self, "now_panel"):
+            self._update_chrome()
+
+    def set_now_panel(self, shown: bool) -> None:
+        self._remember(show_now_panel=shown)
+        self._update_chrome()
 
     def _fill_theme_menu(self) -> None:
         self.theme_menu.clear()
@@ -1347,9 +1622,12 @@ class MainWindow(QMainWindow):
             self._info_dialog.close()
         if self._enhancements is not None:
             self._enhancements.close()
+        self._now.stop()  # the player bar and panel stop reading the library before it closes
+        self.player.lend_video(None)
         self._store.save(self._final_preferences())
         # Rule: the engine must be closed while its host window still exists.
         self.player.shutdown()  # also saves the playback position
+        self.tv.stop()
         self.iptv.shutdown()
         self.library.stop_listening()
         self.library_service.shutdown()

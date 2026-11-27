@@ -269,7 +269,12 @@ class PlayerPage(QWidget):
         self.video.double_clicked.connect(self.fullscreen_requested)
         self.audio_view = AudioView()
         self._stage.addWidget(page)
-        self._stage.addWidget(self.video)
+        # The video sits in a holder, so it can be lent to the Now Playing panel and come back (0.12).
+        self._video_holder = QWidget()
+        holder = QVBoxLayout(self._video_holder)
+        holder.setContentsMargins(0, 0, 0, 0)
+        holder.addWidget(self.video)
+        self._stage.addWidget(self._video_holder)
         self._stage.addWidget(self.audio_view)
         return self._stage
 
@@ -460,7 +465,7 @@ class PlayerPage(QWidget):
         # (queued) error event must win over these defaults.
         self.title_changed.emit(self._media_name)
         self._show_queue_state()
-        self._stage.setCurrentWidget(self.video)
+        self._stage.setCurrentWidget(self._video_holder)
         if self._named_as_audio(path):
             self._show_audio_view()
         try:
@@ -486,6 +491,52 @@ class PlayerPage(QWidget):
     @property
     def duration_ms(self) -> int | None:
         return self._duration_ms
+
+    # ------------------------------------------- for the player bar and Now Playing panel (0.12)
+    @property
+    def display_title(self) -> str:
+        """The song's title from its tags, else the file or channel name; "" when nothing is open."""
+        if not self.has_media and not self._media_name:
+            return ""
+        return (self.audio_view.title.text() if self._is_audio_only else "") or self._media_name
+
+    @property
+    def display_artist(self) -> str:
+        return self.audio_view.artist.text() if self._is_audio_only else ""
+
+    @property
+    def cover_image(self) -> QImage | None:
+        """The song's picture, when it has one."""
+        return self.audio_view.image if self._is_audio_only else None
+
+    @property
+    def visual_style(self) -> str:
+        """The animation chosen for songs with no picture (Settings → Appearance)."""
+        return self._prefs.visual_style
+
+    def lend_video(self, slot: QWidget | None) -> None:
+        """Show the video in ``slot`` (the Now Playing panel's), or back on this page with None (0.12).
+
+        The surface keeps its own native window as it moves, so libVLC goes on drawing into it at full
+        speed, without a pause or a dropped frame (measured), and follows its new size."""
+        target = slot or self._video_holder
+        if self.video.parentWidget() is not target:
+            layout = target.layout()
+            assert layout is not None
+            layout.addWidget(self.video)
+            self.video.show()
+
+    @property
+    def video_lent(self) -> bool:
+        return self.video.parentWidget() is not self._video_holder
+
+    @property
+    def has_video(self) -> bool:
+        return self.has_media and not self._is_audio_only
+
+    @property
+    def can_favourite(self) -> bool:
+        return self._current_uri is not None and self._history is not None and self._is_audio_only
 
     @property
     def media_name(self) -> str:
@@ -1517,7 +1568,7 @@ class PlayerPage(QWidget):
             self._show_audio_view()
             self._show_audio_details(info)
         elif self._state in (S.PLAYING, S.PAUSED, S.BUFFERING, S.LOADING):
-            self._stage.setCurrentWidget(self.video)
+            self._stage.setCurrentWidget(self._video_holder)
         self._apply_state(self._state)  # also applies track preferences once tracks are known
 
     def _show_engine_status(self) -> None:
